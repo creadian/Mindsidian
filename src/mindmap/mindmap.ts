@@ -1832,29 +1832,42 @@ export default class MindMap {
         }
     }
 
+    _scrollScaleTimeout: any = null;
+
     appMousewheel(evt: any) {
-        // if(!evt) evt = window.event;
         var ctrlKey = evt.ctrlKey || evt.metaKey;
-        var delta;
-        if (evt.wheelDelta) {
-            //IE、chrome  -120
+        if (!ctrlKey) return;
+
+        evt.preventDefault();
+
+        // Use deltaY for modern browsers (trackpad-friendly), fall back to wheelDelta
+        var delta = 0;
+        if (evt.deltaY !== undefined) {
+            delta = -evt.deltaY;
+        } else if (evt.wheelDelta) {
             delta = evt.wheelDelta / 120;
         } else if (evt.detail) {
-            //FF 3
             delta = -evt.detail / 3;
         }
 
-        if (delta) {
-            if (delta < 0) {
-                if (ctrlKey) {
-                    this.setScale("down");
-                }
-            } else {
-                if (ctrlKey) {
-                    this.setScale("up");
-                }
-            }
+        if (delta === 0) return;
+
+        // Small step size (1% instead of 10%) for smooth trackpad zooming
+        var step = 1;
+        if (delta > 0) {
+            this.mindScale = Math.min(300, this.mindScale + step);
+        } else {
+            this.mindScale = Math.max(20, this.mindScale - step);
         }
+        this.scale(this.mindScale);
+
+        // Debounced notice so it doesn't spam
+        if (this._scrollScaleTimeout) {
+            clearTimeout(this._scrollScaleTimeout);
+        }
+        this._scrollScaleTimeout = setTimeout(() => {
+            new Notice(`${this.mindScale} %`);
+        }, 400);
     }
 
     clearNode() {

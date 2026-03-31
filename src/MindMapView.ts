@@ -58,7 +58,6 @@ export class MindMapView extends TextFileView implements HoverParent {
     var colors:any[] = []
     try{
       if( this.plugin.settings.strokeArray){
-         //colors = this.plugin.settings.strokeArray.split(',')
          colors = this.plugin.settings.strokeArray;
       }
     }catch(err){
@@ -67,8 +66,14 @@ export class MindMapView extends TextFileView implements HoverParent {
 
     this.colors = this.colors.concat(colors);
 
-    for (var i = 0; i < 50; i++) {
-      this.colors.push(randomColor());
+    // Rainbow colors: evenly spaced hues across the spectrum
+    // Starting from blue-violet (240°) to match the root node theme,
+    // then cycling through the full rainbow
+    var totalColors = 50;
+    var startHue = 240;
+    for (var i = 0; i < totalColors; i++) {
+      var hue = (startHue + Math.round((i / totalColors) * 360)) % 360;
+      this.colors.push(`hsl(${hue}, 65%, 55%)`);
     }
   }
 

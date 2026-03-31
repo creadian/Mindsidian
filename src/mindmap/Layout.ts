@@ -422,7 +422,7 @@ export default class Layout {
 
 				childBox.height = childBox.height + lineWidth;
 
-				let _stroke =  node.stroke?node.stroke:(child.stroke?child.stroke:randomColor());
+				let _stroke =  node.stroke?node.stroke:(child.stroke?child.stroke:'hsl(220, 70%, 55%)');
 
                 if(!child.stroke){
                     child.stroke = _stroke;
@@ -586,7 +586,7 @@ export default class Layout {
 
         //Set Node link Color
         this.root.children.forEach((c:Node,i:number)=>{
-            c.stroke=this.colors[i]||randomColor();
+            c.stroke=this.colors[i]||'hsl(220, 70%, 55%)';
         });
 
 		createLine(root);
