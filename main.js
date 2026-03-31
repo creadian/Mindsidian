@@ -40415,13 +40415,17 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Zoom in
+            // Zoom in (Alt + =)
             this.addCommand({
                 id: 'Zoom in',
                 name: `${t('Zoom in')}`,
                 hotkeys: [
                     {
                         modifiers: ['Alt'],
+                        key: '=',
+                    },
+                    {
+                        modifiers: ['Mod'],
                         key: '=',
                     },
                 ],
@@ -40433,7 +40437,7 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Zoom out
+            // Zoom out (Alt + - or Cmd/Ctrl + -)
             this.addCommand({
                 id: 'Zoom out',
                 name: `${t('Zoom out')}`,
@@ -40442,12 +40446,98 @@ class MindMapPlugin extends obsidian.Plugin {
                         modifiers: ['Alt'],
                         key: '-',
                     },
+                    {
+                        modifiers: ['Mod'],
+                        key: '-',
+                    },
                 ],
                 callback: () => {
                     const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
                     if (mindmapView) {
                         var mindmap = mindmapView.mindmap;
                         mindmap.setScale("down");
+                    }
+                }
+            });
+            // Zoom reset (Cmd/Ctrl + 0)
+            this.addCommand({
+                id: 'Zoom reset',
+                name: 'Reset zoom to 100%',
+                hotkeys: [
+                    {
+                        modifiers: ['Mod'],
+                        key: '0',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.scale(100);
+                        new obsidian.Notice('100%');
+                    }
+                }
+            });
+            // Fold/Unfold selected node (F key)
+            this.addCommand({
+                id: 'Toggle fold node',
+                name: 'Toggle fold/unfold selected node',
+                hotkeys: [
+                    {
+                        modifiers: [],
+                        key: 'f',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        var node = mindmap.selectNode;
+                        if (node && !node.data.isEdit && !node.data.isRoot) {
+                            mindmap._toggleExpandNode(node);
+                        }
+                    }
+                }
+            });
+            // Fold all nodes (Cmd/Ctrl + Shift + -)
+            this.addCommand({
+                id: 'Fold all',
+                name: 'Fold all branches',
+                hotkeys: [
+                    {
+                        modifiers: ['Mod', 'Shift'],
+                        key: '-',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.setDisplayedLevel(1);
+                        mindmap.refresh();
+                        mindmap.scale(mindmap.mindScale);
+                        new obsidian.Notice('All branches folded');
+                    }
+                }
+            });
+            // Unfold all nodes (Cmd/Ctrl + Shift + =)
+            this.addCommand({
+                id: 'Unfold all',
+                name: 'Unfold all branches',
+                hotkeys: [
+                    {
+                        modifiers: ['Mod', 'Shift'],
+                        key: '=',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.setDisplayedLevel(99);
+                        mindmap.refresh();
+                        mindmap.scale(mindmap.mindScale);
+                        new obsidian.Notice('All branches unfolded');
                     }
                 }
             });
