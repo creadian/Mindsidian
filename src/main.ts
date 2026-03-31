@@ -264,15 +264,13 @@ export default class MindMapPlugin extends Plugin {
       }
     });
 
-    // Enter (or Alt + Shift + Enter)
+    // Enter and Tab are handled in the mindmap's internal keydown handler
+    // (mindmap.ts) to avoid intercepting these keys in markdown mode.
+    // Alt+Shift+Enter and Shift+Insert kept as command palette fallbacks.
     this.addCommand({
       id: 'Add sibling/end editing',
       name: `${t('Add sibling/end editing')}`,
       hotkeys: [
-        {
-          modifiers: [],
-          key: 'Enter',
-        },
         {
           modifiers: ['Alt', 'Shift'],
           key: 'Enter',
@@ -283,43 +281,28 @@ export default class MindMapPlugin extends Plugin {
         if(mindmapView){
           var mindmap = mindmapView.mindmap;
           var node = mindmap.selectNode;
-          if(node) {// A node is selected
-            if (!node.data.isEdit) {// Not editing a node => Add sibling node
-              // if (!node.isExpand) {
-              //   node.expand();
-              // }
+          if(node) {
+            if (!node.data.isEdit) {
               if (!node.parent) return;
               var newNode = node.mindmap.execute('addSiblingNode', {
                 parent: node.parent
               });
               mindmap._menuDom.style.display='none';
-
-              // Move the new node under the previously selected one
-              // Do not add this command to the history
               mindmap.moveNode(newNode, node, 'down', false);
-            }
-            else {// Editing mode => end edit mode
-              //node.cancelEdit();
-
+            } else {
               mindmap.clearSelectNode();
               node.select();
               node.mindmap.editNode=null;
-              //this.selectNode.unSelect();
             }
           }
         }
       }
     });
 
-    // Tab (or Shift + Insert)
     this.addCommand({
       id: 'Insert child',
       name: `${t('Insert child')}`,
       hotkeys: [
-        {
-          modifiers: [],
-          key: 'Tab',
-        },
         {
           modifiers: ['Shift'],
           key: 'Insert',
@@ -331,20 +314,18 @@ export default class MindMapPlugin extends Plugin {
           var mindmap = mindmapView.mindmap;
           var node = mindmap.selectNode;
           if(node) {
-            if (!node.data.isEdit) {// Not editing
+            if (!node.data.isEdit) {
               if (!node.isExpand) {
                 node.expand();
               }
               node.mindmap.execute("addChildNode", { parent: node });
               mindmap._menuDom.style.display='none';
-            } else{
-              // mindmap.selectNode.unSelect();
+            } else {
               mindmap.clearSelectNode();
               node.select();
               node.mindmap.editNode=null;
             }
           }
-          //else: no node selected -> nothing to do
         }
       }
     });

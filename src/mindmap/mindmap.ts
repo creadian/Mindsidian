@@ -422,6 +422,47 @@ export default class MindMap {
                 // When isEdit is true, do nothing — let the key go to the text editor
             }
 
+            // Enter — add sibling node or end editing
+            if (e.key == 'Enter') {
+                var node = this.selectNode;
+                if (node) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!node.data.isEdit) {
+                        if (!node.parent) return;
+                        var newNode = node.mindmap.execute('addSiblingNode', {
+                            parent: node.parent
+                        });
+                        this._menuDom.style.display='none';
+                        this.moveNode(newNode, node, 'down', false);
+                    } else {
+                        this.clearSelectNode();
+                        node.select();
+                        this.editNode = null;
+                    }
+                }
+            }
+
+            // Tab — add child node or end editing
+            if (e.key == 'Tab') {
+                var node = this.selectNode;
+                if (node) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!node.data.isEdit) {
+                        if (!node.isExpand) {
+                            node.expand();
+                        }
+                        node.mindmap.execute("addChildNode", { parent: node });
+                        this._menuDom.style.display='none';
+                    } else {
+                        this.clearSelectNode();
+                        node.select();
+                        this.editNode = null;
+                    }
+                }
+            }
+
             // // Space
             // if (keyCode == 32) {
             //     var node = this.selectNode;
