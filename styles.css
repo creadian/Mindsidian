@@ -108,7 +108,7 @@
   border-radius: 50%;
   padding: 0;
   bottom: -6px;
-  box-sizing: content-box;
+  box-sizing: border-box;
   background: var(--interactive-accent, #6366f1);
   border: 2px solid var(--background-primary, #fff);
   transition: transform 0.2s ease, background 0.2s ease;
@@ -243,9 +243,14 @@
   fill: var(--text-muted, #666);
 }
 
-/* Fold dots: keep visual size small but tap area large on mobile */
-.is-mobile .mm-node-bar {
-  /* Bigger tap target via padding, visual size stays the same */
-  padding: 8px;
-  margin: -8px;
+/* Invisible tap target around fold dots — constant size regardless of zoom */
+.mm-node-bar::after {
+  content: '';
+  position: absolute;
+  width: var(--dot-tap-size, 20px);
+  height: var(--dot-tap-size, 20px);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
 }

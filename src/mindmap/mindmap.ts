@@ -2589,13 +2589,11 @@ export default class MindMap {
         this._menuDom.style.transformOrigin = 'left center';
 
         // Keep fold dot tap area constant size regardless of zoom
-        // but let the visual dot scale naturally with zoom
-        var tapInverseScale = 100 / this.mindScale;
-        var bars = this.contentEL.querySelectorAll('.mm-node-bar') as NodeListOf<HTMLElement>;
-        bars.forEach((bar: HTMLElement) => {
-            bar.style.padding = `${8 * tapInverseScale}px`;
-            bar.style.margin = `${-8 * tapInverseScale}px`;
-        });
+        // The dot scales visually with zoom, but the ::after tap target
+        // is scaled inversely to stay the same physical size
+        var tapSize = Math.round(20 * (100 / this.mindScale));
+        this.appEl.style.setProperty('--dot-tap-size', `${tapSize}px`);
+        this.appEl.style.setProperty('--dot-tap-offset', `${Math.round(tapSize / 2)}px`);
     }
 
     setScale(type: string) {
