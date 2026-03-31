@@ -1637,7 +1637,7 @@ export default class MindMap {
             } else {
                 // Tapping outside: end edit mode if editing, then clear selection
                 if (this.editNode) {
-                    this.editNode.select();
+                    this.editNode.cancelEdit();
                     this.editNode = null;
                 }
                 this.clearSelectNode();
@@ -1922,14 +1922,13 @@ export default class MindMap {
                 }, 500);
             }
 
-            // Start panning if not on a node
+            // Prepare for panning if not on a node (don't preventDefault yet — let tap/click through)
             if (!targetEl.closest('.mm-node') && !targetEl.closest('.mm-node-menu')) {
-                this._isTouchPanning = true;
+                this._isTouchPanning = false; // Will become true on actual move
                 this._touchStartX = evt.touches[0].pageX;
                 this._touchStartY = evt.touches[0].pageY;
                 this._touchScrollLeft = this.containerEL.scrollLeft;
                 this._touchScrollTop = this.containerEL.scrollTop;
-                evt.preventDefault();
             }
         }
     }
@@ -1952,13 +1951,18 @@ export default class MindMap {
             return;
         }
 
-        if (evt.touches.length === 1 && this._isTouchPanning) {
-            // Pan
-            evt.preventDefault();
+        if (evt.touches.length === 1 && this._touchStartX !== 0) {
             var dx = evt.touches[0].pageX - this._touchStartX;
             var dy = evt.touches[0].pageY - this._touchStartY;
-            this.containerEL.scrollLeft = this._touchScrollLeft - dx;
-            this.containerEL.scrollTop = this._touchScrollTop - dy;
+            // Only start panning after finger moves more than 5px (avoids blocking taps)
+            if (!this._isTouchPanning && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+                this._isTouchPanning = true;
+            }
+            if (this._isTouchPanning) {
+                evt.preventDefault();
+                this.containerEL.scrollLeft = this._touchScrollLeft - dx;
+                this.containerEL.scrollTop = this._touchScrollTop - dy;
+            }
         }
     }
 
@@ -2578,6 +2582,17 @@ export default class MindMap {
             this.appEl.style.transform = "scale(" + this.mindScale / 100 + ")";
         }
 
+        // Keep menu and fold dots at constant visual size regardless of zoom
+        // Target size: as if zoom is 120%
+        var inverseScale = 120 / this.mindScale;
+        this._menuDom.style.transform = `scale(${inverseScale})`;
+        this._menuDom.style.transformOrigin = 'left center';
+
+        // Apply inverse scale to all node bars (fold dots)
+        var bars = this.contentEL.querySelectorAll('.mm-node-bar');
+        bars.forEach((bar: HTMLElement) => {
+            bar.style.transform = `scale(${inverseScale})`;
+        });
     }
 
     setScale(type: string) {

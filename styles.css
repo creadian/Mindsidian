@@ -243,18 +243,9 @@
   fill: var(--text-muted, #666);
 }
 
-/* Mobile: make fold dots bigger and easier to tap */
+/* Fold dots: keep visual size small but tap area large on mobile */
 .is-mobile .mm-node-bar {
-  height: 20px;
-  width: 20px;
-  bottom: -12px;
-}
-
-.is-mobile .mm-node-right .mm-node-bar,
-.is-mobile .mm-node.mm-root .mm-node-bar {
-  right: -18px;
-}
-
-.is-mobile .mm-node-left .mm-node-bar {
-  left: -18px;
+  /* Bigger tap target via padding, visual size stays the same */
+  padding: 8px;
+  margin: -8px;
 }
