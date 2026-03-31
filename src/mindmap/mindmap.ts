@@ -1954,23 +1954,12 @@ export default class MindMap {
         }
 
         if (evt.touches.length === 2) {
-            // Pinch-to-zoom
+            // Pinch-to-zoom — origin was set on pinch start, keep it fixed
             evt.preventDefault();
             var dist = this._getTouchDist(evt.touches);
             var ratio = dist / this._pinchStartDist;
             var newScale = Math.round(this._pinchStartScale * ratio);
             newScale = Math.max(20, Math.min(300, newScale));
-
-            // Update zoom origin to current midpoint between fingers
-            var rect = this.appEl.getBoundingClientRect();
-            var midX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2;
-            var midY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2;
-            var currentScale = this.mindScale / 100;
-            this.scalePointer = [
-                (midX - rect.left) / currentScale,
-                (midY - rect.top) / currentScale
-            ];
-
             this.scale(newScale);
             return;
         }
