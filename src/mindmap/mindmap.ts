@@ -1833,31 +1833,49 @@ export default class MindMap {
     }
 
     _scrollScaleTimeout: any = null;
+    _lastScrollDir: number = 0;
+    _scrollAccum: number = 0;
 
     appMousewheel(evt: any) {
         var ctrlKey = evt.ctrlKey || evt.metaKey;
         if (!ctrlKey) return;
 
         evt.preventDefault();
+        evt.stopPropagation();
 
-        // Use deltaY for modern browsers (trackpad-friendly), fall back to wheelDelta
-        var delta = 0;
+        // Use deltaY for modern browsers (trackpad-friendly)
+        var rawDelta = 0;
         if (evt.deltaY !== undefined) {
-            delta = -evt.deltaY;
+            rawDelta = -evt.deltaY;
         } else if (evt.wheelDelta) {
-            delta = evt.wheelDelta / 120;
+            rawDelta = evt.wheelDelta / 120;
         } else if (evt.detail) {
-            delta = -evt.detail / 3;
+            rawDelta = -evt.detail / 3;
         }
 
-        if (delta === 0) return;
+        if (rawDelta === 0) return;
 
-        // Small step size (1% instead of 10%) for smooth trackpad zooming
-        var step = 1;
-        if (delta > 0) {
-            this.mindScale = Math.min(300, this.mindScale + step);
+        // Detect direction change — reset accumulator to avoid stale inertia
+        var newDir = rawDelta > 0 ? 1 : -1;
+        if (newDir !== this._lastScrollDir) {
+            this._scrollAccum = 0;
+            this._lastScrollDir = newDir;
+        }
+
+        // Accumulate small scroll deltas; only zoom when we cross a threshold
+        // This smooths out trackpad micro-events and prevents choppiness
+        this._scrollAccum += rawDelta;
+        var threshold = 2;
+        if (Math.abs(this._scrollAccum) < threshold) return;
+
+        // Consume the accumulated amount
+        var steps = Math.floor(Math.abs(this._scrollAccum) / threshold);
+        this._scrollAccum = this._scrollAccum % threshold;
+
+        if (newDir > 0) {
+            this.mindScale = Math.min(300, this.mindScale + steps);
         } else {
-            this.mindScale = Math.max(20, this.mindScale - step);
+            this.mindScale = Math.max(20, this.mindScale - steps);
         }
         this.scale(this.mindScale);
 

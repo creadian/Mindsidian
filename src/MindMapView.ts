@@ -66,14 +66,34 @@ export class MindMapView extends TextFileView implements HoverParent {
 
     this.colors = this.colors.concat(colors);
 
-    // Rainbow colors: evenly spaced hues across the spectrum
-    // Starting from blue-violet (240°) to match the root node theme,
-    // then cycling through the full rainbow
-    var totalColors = 50;
-    var startHue = 240;
-    for (var i = 0; i < totalColors; i++) {
-      var hue = (startHue + Math.round((i / totalColors) * 360)) % 360;
-      this.colors.push(`hsl(${hue}, 65%, 55%)`);
+    // Curated color palette — distinct but flowing
+    // Each color is clearly different from its neighbors,
+    // cycling through the spectrum in a designed sequence
+    var palette = [
+      '#6366f1', // indigo (matches root)
+      '#3b82f6', // blue
+      '#06b6d4', // cyan
+      '#14b8a6', // teal
+      '#22c55e', // green
+      '#84cc16', // lime
+      '#eab308', // yellow
+      '#f97316', // orange
+      '#ef4444', // red
+      '#ec4899', // pink
+      '#d946ef', // fuchsia
+      '#a855f7', // purple
+      '#8b5cf6', // violet
+      '#0ea5e9', // sky blue
+      '#10b981', // emerald
+      '#f59e0b', // amber
+      '#f43f5e', // rose
+      '#7c3aed', // deep violet
+      '#2563eb', // royal blue
+      '#059669', // sea green
+    ];
+    // Repeat the palette to cover up to 60+ branches
+    for (var i = 0; i < 60; i++) {
+      this.colors.push(palette[i % palette.length]);
     }
   }
 
