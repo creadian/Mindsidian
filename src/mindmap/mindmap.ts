@@ -1608,7 +1608,7 @@ export default class MindMap {
 
                  if(targetEl.closest('.mm-icon-delete-node')){
                     var selectNode = this.selectNode;
-                    if(!node.data.isRoot && selectNode){
+                    if(selectNode && !selectNode.data.isRoot){
                        selectNode.mindmap.execute("deleteNodeAndChild", { node: selectNode });
                        this._menuDom.style.display='none';
                     }
@@ -1627,13 +1627,19 @@ export default class MindMap {
                     if (!Platform.isDesktop) {
                         this._menuDom.style.display='block';
                         var box = this.selectNode.getBox();
-                        this._menuDom.style.left = `${box.x + box.width + 10}px`;
-                        this._menuDom.style.top = `${box.y + box.height/2 - 14}px`;
+                        // Position further right to avoid overlap with the fold dot
+                        this._menuDom.style.left = `${box.x + box.width + 28}px`;
+                        this._menuDom.style.top = `${box.y + box.height/2 - 20}px`;
                     } else {
                         this._menuDom.style.display='none';
                     }
                 }
             } else {
+                // Tapping outside: end edit mode if editing, then clear selection
+                if (this.editNode) {
+                    this.editNode.select();
+                    this.editNode = null;
+                }
                 this.clearSelectNode();
                 this._menuDom.style.display='none';
             }

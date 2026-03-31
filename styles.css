@@ -198,11 +198,14 @@
   position: absolute;
   background: var(--background-primary, #fff);
   border: 1px solid var(--background-modifier-border, #e0e0e0);
-  width: 56px;
   border-radius: 10px;
   z-index: 60;
   box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-  padding: 4px 0;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
 }
 
 .theme-dark .mm-node-menu {
@@ -214,12 +217,22 @@
 .mm-node-menu span {
   vertical-align: middle;
   cursor: pointer;
-  margin: 0 5px;
-  transition: opacity 0.15s ease;
+  padding: 6px;
+  border-radius: 6px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mm-node-menu span:active {
+  background: rgba(99, 102, 241, 0.15);
 }
 
 .mm-node-menu span svg {
   fill: var(--text-muted, #888);
+  width: 20px;
+  height: 20px;
 }
 
 .mm-node-menu span svg:hover {
@@ -228,4 +241,20 @@
 
 .theme-light .mm-node-menu svg {
   fill: var(--text-muted, #666);
+}
+
+/* Mobile: make fold dots bigger and easier to tap */
+.is-mobile .mm-node-bar {
+  height: 20px;
+  width: 20px;
+  bottom: -12px;
+}
+
+.is-mobile .mm-node-right .mm-node-bar,
+.is-mobile .mm-node.mm-root .mm-node-bar {
+  right: -18px;
+}
+
+.is-mobile .mm-node-left .mm-node-bar {
+  left: -18px;
 }
