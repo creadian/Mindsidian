@@ -39613,11 +39613,15 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Alt + Shift + Z
+            // Undo (Cmd+Z or Alt+Shift+Z)
             this.addCommand({
                 id: 'Undo',
                 name: `${t('Undo')}`,
                 hotkeys: [
+                    {
+                        modifiers: ['Mod'],
+                        key: 'Z',
+                    },
                     {
                         modifiers: ['Alt', 'Shift'],
                         key: 'Z',
@@ -39631,11 +39635,19 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Alt + Shift + Y
+            // Redo (Cmd+Shift+Z or Cmd+Y or Alt+Shift+Y)
             this.addCommand({
                 id: 'Redo',
                 name: `${t('Redo')}`,
                 hotkeys: [
+                    {
+                        modifiers: ['Mod', 'Shift'],
+                        key: 'Z',
+                    },
+                    {
+                        modifiers: ['Mod'],
+                        key: 'Y',
+                    },
                     {
                         modifiers: ['Alt', 'Shift'],
                         key: 'Y',
@@ -39772,11 +39784,19 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Shift + Delete
+            // Delete / Backspace (or Shift+Delete)
             this.addCommand({
                 id: 'Delete node & child',
                 name: `${t('Delete node & child')}`,
                 hotkeys: [
+                    {
+                        modifiers: [],
+                        key: 'Delete',
+                    },
+                    {
+                        modifiers: [],
+                        key: 'Backspace',
+                    },
                     {
                         modifiers: ['Shift'],
                         key: 'Delete',
