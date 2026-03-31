@@ -403,6 +403,20 @@ export class MindMapView extends TextFileView implements HoverParent {
 
     this.mindmap = new MindMap(mindData, this.contentEl, this.plugin.settings);
     this.mindmap.colors = this.colors;
+
+    // Add floating recenter button
+    if (!this.contentEl.querySelector('.mm-recenter-btn')) {
+      var recenterBtn = document.createElement('button');
+      recenterBtn.classList.add('mm-recenter-btn');
+      recenterBtn.innerHTML = '⌖';
+      recenterBtn.setAttribute('aria-label', 'Center mindmap');
+      recenterBtn.addEventListener('click', () => {
+        if (this.mindmap) {
+          this.mindmap.center();
+        }
+      });
+      this.contentEl.appendChild(recenterBtn);
+    }
     if (this.firstInit) {
 
       setTimeout(() => {
