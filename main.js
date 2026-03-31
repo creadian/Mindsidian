@@ -179,6 +179,8 @@ var en = {
     'Join as citation with the node below': 'Join as citation with the node below',
     'Center mindmap view on the current node': 'Center mindmap view on the current node',
     'Center mindmap view': 'Center mindmap view',
+    'Zoom in': 'Zoom in',
+    'Zoom out': 'Zoom out',
     'Display the node\'s info in console': 'Display the node\'s info in console',
     "Export to html": "Export to html",
     "Export to PNG": "Export to PNG",
@@ -40410,6 +40412,42 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (mindmapView) {
                         var mindmap = mindmapView.mindmap;
                         mindmap.center();
+                    }
+                }
+            });
+            // Zoom in
+            this.addCommand({
+                id: 'Zoom in',
+                name: `${t('Zoom in')}`,
+                hotkeys: [
+                    {
+                        modifiers: ['Alt'],
+                        key: '=',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.setScale("up");
+                    }
+                }
+            });
+            // Zoom out
+            this.addCommand({
+                id: 'Zoom out',
+                name: `${t('Zoom out')}`,
+                hotkeys: [
+                    {
+                        modifiers: ['Alt'],
+                        key: '-',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.setScale("down");
                     }
                 }
             });
