@@ -103,12 +103,12 @@
 /* --- Collapse/expand indicator (the dot on nodes) --- */
 .mm-node-bar {
   position: absolute;
-  height: 14px;
-  width: 14px;
+  height: 8px;
+  width: 8px;
   border-radius: 50%;
   padding: 0;
-  bottom: -9px;
-  box-sizing: border-box;
+  bottom: -6px;
+  box-sizing: content-box;
   background: var(--interactive-accent, #6366f1);
   border: 2px solid var(--background-primary, #fff);
   transition: transform 0.2s ease, background 0.2s ease;
@@ -127,7 +127,7 @@
 .mm-root .mm-node-bar,
 .mm-node-second .mm-node-bar {
   top: 50%;
-  margin-top: -7px;
+  margin-top: -4px;
   bottom: inherit;
 }
 

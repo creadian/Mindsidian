@@ -9930,10 +9930,13 @@ class MindMap {
         var inverseScale = 120 / this.mindScale;
         this._menuDom.style.transform = `scale(${inverseScale})`;
         this._menuDom.style.transformOrigin = 'left center';
-        // Apply inverse scale to all node bars (fold dots)
+        // Keep fold dot tap area constant size regardless of zoom
+        // but let the visual dot scale naturally with zoom
+        var tapInverseScale = 100 / this.mindScale;
         var bars = this.contentEL.querySelectorAll('.mm-node-bar');
         bars.forEach((bar) => {
-            bar.style.transform = `scale(${inverseScale})`;
+            bar.style.padding = `${8 * tapInverseScale}px`;
+            bar.style.margin = `${-8 * tapInverseScale}px`;
         });
     }
     setScale(type) {
