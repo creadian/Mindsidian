@@ -7917,6 +7917,15 @@ class MindMap {
         this._dragType = '';
         this.isComposing = false;
         this.isFocused = true;
+        // --- Mobile touch handlers ---
+        this._touchStartX = 0;
+        this._touchStartY = 0;
+        this._touchScrollLeft = 0;
+        this._touchScrollTop = 0;
+        this._pinchStartDist = 0;
+        this._pinchStartScale = 100;
+        this._longPressTimer = null;
+        this._isTouchPanning = false;
         this._scrollScaleTimeout = null;
         this._lastScrollDir = 0;
         this._scrollAccum = 0;
@@ -7976,6 +7985,10 @@ class MindMap {
         this.appMouseMove = this.appMouseMove.bind(this);
         this.appMouseDown = this.appMouseDown.bind(this);
         this.appMouseUp = this.appMouseUp.bind(this);
+        // Mobile touch handlers
+        this.appTouchStart = this.appTouchStart.bind(this);
+        this.appTouchMove = this.appTouchMove.bind(this);
+        this.appTouchEnd = this.appTouchEnd.bind(this);
         this.appFocusIn = this.appFocusIn.bind(this);
         this.appFocusOut = this.appFocusOut.bind(this);
         //custom event
@@ -8132,13 +8145,19 @@ class MindMap {
         document.addEventListener('keydown', this.appKeydown);
         document.addEventListener('compositionstart', this.compositionStart);
         document.addEventListener('compositionend', this.compositionEnd);
-        document.body.addEventListener('mousewheel', this.appMousewheel);
-        this.containerEL.addEventListener('wheel', this.appContainerWheel, { passive: false });
         if (obsidian.Platform.isDesktop) {
+            document.body.addEventListener('mousewheel', this.appMousewheel);
+            this.containerEL.addEventListener('wheel', this.appContainerWheel, { passive: false });
             this.appEl.addEventListener('mousedown', this.appMouseDown);
             this.appEl.addEventListener('mouseup', this.appMouseUp);
+            this.appEl.addEventListener('mousemove', this.appMouseMove);
         }
-        this.appEl.addEventListener('mousemove', this.appMouseMove);
+        else {
+            // Mobile: touch events for panning and pinch-to-zoom
+            this.appEl.addEventListener('touchstart', this.appTouchStart, { passive: false });
+            this.appEl.addEventListener('touchmove', this.appTouchMove, { passive: false });
+            this.appEl.addEventListener('touchend', this.appTouchEnd);
+        }
         this.containerEL.addEventListener('focusin', this.appFocusIn);
         this.containerEL.addEventListener('focusout', this.appFocusOut);
         //custom event
@@ -8158,13 +8177,18 @@ class MindMap {
         document.removeEventListener('keydown', this.appKeydown);
         document.removeEventListener('compositionstart', this.compositionStart);
         document.removeEventListener('compositionend', this.compositionEnd);
-        document.body.removeEventListener('mousewheel', this.appMousewheel);
-        this.containerEL.removeEventListener('wheel', this.appContainerWheel);
         if (obsidian.Platform.isDesktop) {
+            document.body.removeEventListener('mousewheel', this.appMousewheel);
+            this.containerEL.removeEventListener('wheel', this.appContainerWheel);
             this.appEl.removeEventListener('mousedown', this.appMouseDown);
             this.appEl.removeEventListener('mouseup', this.appMouseUp);
+            this.appEl.removeEventListener('mousemove', this.appMouseMove);
         }
-        this.appEl.removeEventListener('mousemove', this.appMouseMove);
+        else {
+            this.appEl.removeEventListener('touchstart', this.appTouchStart);
+            this.appEl.removeEventListener('touchmove', this.appTouchMove);
+            this.appEl.removeEventListener('touchend', this.appTouchEnd);
+        }
         this.containerEL.removeEventListener('focusin', this.appFocusIn);
         this.containerEL.removeEventListener('focusout', this.appFocusOut);
         this.off('initNode', this.initNode);
@@ -9082,11 +9106,16 @@ class MindMap {
                     this.clearSelectNode();
                     this.selectNode = node;
                     (_a = this.selectNode) === null || _a === void 0 ? void 0 : _a.select();
-                    // this._menuDom.style.display='block';
-                    this._menuDom.style.display = 'none';
-                    this.selectNode.getBox();
-                    // this._menuDom.style.left = `${box.x + box.width + 10}px`;
-                    // this._menuDom.style.top = `${box.y + box.height/2 - 14}px`;
+                    // Show the add/delete menu on mobile when a node is selected
+                    if (!obsidian.Platform.isDesktop) {
+                        this._menuDom.style.display = 'block';
+                        var box = this.selectNode.getBox();
+                        this._menuDom.style.left = `${box.x + box.width + 10}px`;
+                        this._menuDom.style.top = `${box.y + box.height / 2 - 14}px`;
+                    }
+                    else {
+                        this._menuDom.style.display = 'none';
+                    }
                 }
             }
             else {
@@ -9307,6 +9336,77 @@ class MindMap {
     }
     appMouseUp(evt) {
         this.drag = false;
+    }
+    _getTouchDist(touches) {
+        var dx = touches[0].pageX - touches[1].pageX;
+        var dy = touches[0].pageY - touches[1].pageY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    appTouchStart(evt) {
+        if (evt.touches.length === 2) {
+            // Pinch-to-zoom start
+            evt.preventDefault();
+            this._pinchStartDist = this._getTouchDist(evt.touches);
+            this._pinchStartScale = this.mindScale;
+            return;
+        }
+        if (evt.touches.length === 1) {
+            var targetEl = evt.target;
+            // Long-press to edit a node (500ms)
+            if (targetEl.closest('.mm-node') && !targetEl.hasClass('mm-node-bar')) {
+                var id = targetEl.closest('.mm-node').getAttribute('data-id');
+                var node = this.getNodeById(id);
+                this._longPressTimer = setTimeout(() => {
+                    if (node && !this.editNode) {
+                        node.edit();
+                        this.editNode = node;
+                        this._menuDom.style.display = 'none';
+                    }
+                }, 500);
+            }
+            // Start panning if not on a node
+            if (!targetEl.closest('.mm-node') && !targetEl.closest('.mm-node-menu')) {
+                this._isTouchPanning = true;
+                this._touchStartX = evt.touches[0].pageX;
+                this._touchStartY = evt.touches[0].pageY;
+                this._touchScrollLeft = this.containerEL.scrollLeft;
+                this._touchScrollTop = this.containerEL.scrollTop;
+                evt.preventDefault();
+            }
+        }
+    }
+    appTouchMove(evt) {
+        // Clear long-press if finger moves
+        if (this._longPressTimer) {
+            clearTimeout(this._longPressTimer);
+            this._longPressTimer = null;
+        }
+        if (evt.touches.length === 2) {
+            // Pinch-to-zoom
+            evt.preventDefault();
+            var dist = this._getTouchDist(evt.touches);
+            var ratio = dist / this._pinchStartDist;
+            var newScale = Math.round(this._pinchStartScale * ratio);
+            newScale = Math.max(20, Math.min(300, newScale));
+            this.scale(newScale);
+            return;
+        }
+        if (evt.touches.length === 1 && this._isTouchPanning) {
+            // Pan
+            evt.preventDefault();
+            var dx = evt.touches[0].pageX - this._touchStartX;
+            var dy = evt.touches[0].pageY - this._touchStartY;
+            this.containerEL.scrollLeft = this._touchScrollLeft - dx;
+            this.containerEL.scrollTop = this._touchScrollTop - dy;
+        }
+    }
+    appTouchEnd(evt) {
+        if (this._longPressTimer) {
+            clearTimeout(this._longPressTimer);
+            this._longPressTimer = null;
+        }
+        this._isTouchPanning = false;
+        this._pinchStartDist = 0;
     }
     appDblclickFn(evt) {
         var _a;
