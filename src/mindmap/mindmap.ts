@@ -135,6 +135,7 @@ export default class MindMap {
 
         this.appKeydown = this.appKeydown.bind(this);
         this.appMousewheel = this.appMousewheel.bind(this);
+        this.appContainerWheel = this.appContainerWheel.bind(this);
         this.appMouseMove = this.appMouseMove.bind(this);
 
         this.appMouseDown = this.appMouseDown.bind(this);
@@ -315,6 +316,7 @@ export default class MindMap {
         document.addEventListener('compositionstart',this.compositionStart)
         document.addEventListener('compositionend',this.compositionEnd)
         document.body.addEventListener('mousewheel', this.appMousewheel);
+        this.containerEL.addEventListener('wheel', this.appContainerWheel, { passive: false });
 
         if(Platform.isDesktop){
             this.appEl.addEventListener('mousedown', this.appMouseDown);
@@ -346,6 +348,7 @@ export default class MindMap {
         document.removeEventListener('compositionend',this.compositionEnd)
 
         document.body.removeEventListener('mousewheel', this.appMousewheel);
+        this.containerEL.removeEventListener('wheel', this.appContainerWheel);
 
         if(Platform.isDesktop){
             this.appEl.removeEventListener('mousedown', this.appMouseDown);
@@ -1830,6 +1833,17 @@ export default class MindMap {
                 }
             }
         }
+    }
+
+    // Handle normal scrolling (non-zoom) — take over from native scroll
+    // to eliminate macOS momentum/inertia that causes direction-change lag
+    appContainerWheel(evt: WheelEvent) {
+        var ctrlKey = evt.ctrlKey || evt.metaKey;
+        if (ctrlKey) return; // Let zoom handler deal with Ctrl+scroll
+
+        evt.preventDefault();
+        this.containerEL.scrollLeft += evt.deltaX;
+        this.containerEL.scrollTop += evt.deltaY;
     }
 
     _scrollScaleTimeout: any = null;
