@@ -410,12 +410,17 @@ export default class MindMap {
         // }
 
         if (!ctrlKey && !shiftKey && !altKey) { // No special key
-            // // tab
-            // // tab (OK) / Insert (OK)
-            // if (keyCode == 9 || keyCode == 45) {
-            //     e.preventDefault();
-            //     e.stopPropagation();
-            // }
+            // Delete / Backspace — delete node when not editing
+            if (e.key == 'Delete' || e.key == 'Backspace') {
+                var node = this.selectNode;
+                if (node && !node.data.isRoot && !node.data.isEdit) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    node.mindmap.execute("deleteNodeAndChild", { node });
+                    this._menuDom.style.display='none';
+                }
+                // When isEdit is true, do nothing — let the key go to the text editor
+            }
 
             // // Space
             // if (keyCode == 32) {

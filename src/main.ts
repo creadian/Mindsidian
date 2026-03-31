@@ -349,19 +349,11 @@ export default class MindMapPlugin extends Plugin {
       }
     });
 
-    // Delete / Backspace (or Shift+Delete)
+    // Shift + Delete (command palette fallback for delete)
     this.addCommand({
       id: 'Delete node & child',
       name: `${t('Delete node & child')}`,
       hotkeys: [
-        {
-          modifiers: [],
-          key: 'Delete',
-        },
-        {
-          modifiers: [],
-          key: 'Backspace',
-        },
         {
           modifiers: ['Shift'],
           key: 'Delete',
@@ -376,8 +368,6 @@ export default class MindMapPlugin extends Plugin {
             node.mindmap.execute("deleteNodeAndChild", { node });
             mindmap._menuDom.style.display='none';
           }
-          //else: Deletion makes no sense
-        }
       }
     });
 

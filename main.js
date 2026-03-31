@@ -8205,9 +8205,38 @@ class MindMap {
         if (!this.isFocused)
             return; // Check if Mindmap is in focus or not
         e.keyCode || e.which || e.charCode;
-        e.ctrlKey || e.metaKey;
-        e.shiftKey;
-        e.altKey;
+        var ctrlKey = e.ctrlKey || e.metaKey;
+        var shiftKey = e.shiftKey;
+        var altKey = e.altKey;
+        // if (ctrlKey) {                         // Shift -> Selecting
+        //     // ctrl -> selecting
+        //     this.selectingNodes = true;
+        // } else {
+        //     this.selectingNodes = false;
+        // }
+        if (!ctrlKey && !shiftKey && !altKey) { // No special key
+            // Delete / Backspace — delete node when not editing
+            if (e.key == 'Delete' || e.key == 'Backspace') {
+                var node = this.selectNode;
+                if (node && !node.data.isRoot && !node.data.isEdit) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    node.mindmap.execute("deleteNodeAndChild", { node });
+                    this._menuDom.style.display = 'none';
+                }
+                // When isEdit is true, do nothing — let the key go to the text editor
+            }
+            // // Space
+            // if (keyCode == 32) {
+            //     var node = this.selectNode;
+            //     if (node && !node.data.isEdit) {
+            //         e.preventDefault();
+            //         e.stopPropagation();
+            //         node.edit();
+            //         this._menuDom.style.display = 'none';
+            //     }
+            // }
+        }
         // Shift + F2 : Edit as space does
         // if (!ctrlKey && shiftKey && !altKey) {  // SHIFT key
         //     if (keyCode == 113) {
@@ -39335,19 +39364,11 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Delete / Backspace (or Shift+Delete)
+            // Shift + Delete (command palette fallback for delete)
             this.addCommand({
                 id: 'Delete node & child',
                 name: `${t('Delete node & child')}`,
                 hotkeys: [
-                    {
-                        modifiers: [],
-                        key: 'Delete',
-                    },
-                    {
-                        modifiers: [],
-                        key: 'Backspace',
-                    },
                     {
                         modifiers: ['Shift'],
                         key: 'Delete',
@@ -39362,7 +39383,6 @@ class MindMapPlugin extends obsidian.Plugin {
                             node.mindmap.execute("deleteNodeAndChild", { node });
                             mindmap._menuDom.style.display = 'none';
                         }
-                        //else: Deletion makes no sense
                     }
                 }
             });
