@@ -1890,6 +1890,7 @@ export default class MindMap {
     _pinchStartScale: number = 100;
     _longPressTimer: any = null;
     _isTouchPanning: boolean = false;
+    _wasPinching: boolean = false;
 
     _getTouchDist(touches: TouchList): number {
         var dx = touches[0].pageX - touches[1].pageX;
@@ -1901,6 +1902,7 @@ export default class MindMap {
         if (evt.touches.length === 2) {
             // Pinch-to-zoom start
             evt.preventDefault();
+            this._wasPinching = true;
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
 
@@ -1973,7 +1975,7 @@ export default class MindMap {
             return;
         }
 
-        if (evt.touches.length === 1 && this._touchStartX !== 0) {
+        if (evt.touches.length === 1 && this._touchStartX !== 0 && !this._wasPinching) {
             var dx = evt.touches[0].pageX - this._touchStartX;
             var dy = evt.touches[0].pageY - this._touchStartY;
             // Only start panning after finger moves more than 5px (avoids blocking taps)
@@ -1995,6 +1997,10 @@ export default class MindMap {
         }
         this._isTouchPanning = false;
         this._pinchStartDist = 0;
+        // Only clear pinch flag when ALL fingers are lifted
+        if (evt.touches.length === 0) {
+            this._wasPinching = false;
+        }
     }
 
     appDblclickFn(evt: MouseEvent) {

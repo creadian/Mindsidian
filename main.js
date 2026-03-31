@@ -7926,6 +7926,7 @@ class MindMap {
         this._pinchStartScale = 100;
         this._longPressTimer = null;
         this._isTouchPanning = false;
+        this._wasPinching = false;
         this._scrollScaleTimeout = null;
         this._lastScrollDir = 0;
         this._scrollAccum = 0;
@@ -9352,6 +9353,7 @@ class MindMap {
         if (evt.touches.length === 2) {
             // Pinch-to-zoom start
             evt.preventDefault();
+            this._wasPinching = true;
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
             // Set zoom origin to midpoint between fingers (relative to appEl)
@@ -9415,7 +9417,7 @@ class MindMap {
             this.scale(newScale);
             return;
         }
-        if (evt.touches.length === 1 && this._touchStartX !== 0) {
+        if (evt.touches.length === 1 && this._touchStartX !== 0 && !this._wasPinching) {
             var dx = evt.touches[0].pageX - this._touchStartX;
             var dy = evt.touches[0].pageY - this._touchStartY;
             // Only start panning after finger moves more than 5px (avoids blocking taps)
@@ -9436,6 +9438,10 @@ class MindMap {
         }
         this._isTouchPanning = false;
         this._pinchStartDist = 0;
+        // Only clear pinch flag when ALL fingers are lifted
+        if (evt.touches.length === 0) {
+            this._wasPinching = false;
+        }
     }
     appDblclickFn(evt) {
         var _a;
