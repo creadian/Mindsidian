@@ -39689,11 +39689,15 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Alt + Shift + Enter
+            // Enter (or Alt + Shift + Enter)
             this.addCommand({
                 id: 'Add sibling/end editing',
                 name: `${t('Add sibling/end editing')}`,
                 hotkeys: [
+                    {
+                        modifiers: [],
+                        key: 'Enter',
+                    },
                     {
                         modifiers: ['Alt', 'Shift'],
                         key: 'Enter',
@@ -39730,11 +39734,15 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Shift + Tab / Insert
+            // Tab (or Shift + Insert)
             this.addCommand({
                 id: 'Insert child',
                 name: `${t('Insert child')}`,
                 hotkeys: [
+                    {
+                        modifiers: [],
+                        key: 'Tab',
+                    },
                     {
                         modifiers: ['Shift'],
                         key: 'Insert',
@@ -40478,14 +40486,14 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                 }
             });
-            // Fold/Unfold selected node (F key)
+            // Fold/Unfold selected node (Cmd/Ctrl + .)
             this.addCommand({
                 id: 'Toggle fold node',
                 name: 'Toggle fold/unfold selected node',
                 hotkeys: [
                     {
-                        modifiers: [],
-                        key: 'f',
+                        modifiers: ['Mod'],
+                        key: '.',
                     },
                 ],
                 callback: () => {
