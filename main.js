@@ -39020,20 +39020,22 @@ class MindMapView extends obsidian.TextFileView {
         var md = str.trim().replace(FRONT_MATTER_REGEX, '');
         return md.trim();
     }
-    // Normalize markdown so the markmap parser doesn't silently drop content.
-    // 1. Bare text lines (no bullet) → converted to bullets
-    // 2. Orphaned indented bullets (indented but no parent at lower level) → un-indented
+    // Normalize markdown so the markmap parser never silently drops content.
+    // Principle: assimilate everything into the mindmap structure. No data loss.
+    //
+    // Handles: bare text, #tags, orphaned indentation, spaces-as-tabs,
+    //          horizontal rules, and any other non-standard formatting.
     normalizeBullets(str) {
         var lines = str.split('\n');
         var result = [];
         var inFence = false;
-        // Track the current valid indentation depth (number of leading tabs)
+        // Track the current valid indentation depth (in tab-equivalents)
         // -1 means we're right after a heading (no bullets yet)
         var maxIndent = -1;
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i];
             var trimmed = line.trim();
-            // Track code fence state
+            // Track code fence state — pass through untouched
             if (trimmed.startsWith('```')) {
                 inFence = !inFence;
                 result.push(line);
@@ -39043,39 +39045,70 @@ class MindMapView extends obsidian.TextFileView {
                 result.push(line);
                 continue;
             }
-            // Headings reset indentation context
-            if (trimmed.startsWith('#')) {
+            // Empty lines — pass through
+            if (trimmed === '') {
+                result.push(line);
+                continue;
+            }
+            // Real headings: must have "# " (hash + space). Reset indent context.
+            // This distinguishes "## Heading" from "#tag" or "###no-space"
+            if (/^#{1,6}\s/.test(trimmed)) {
                 maxIndent = -1;
                 result.push(line);
                 continue;
             }
-            // Skip empty lines, blockquotes
-            if (trimmed === '' || trimmed.startsWith('>')) {
+            // Blockquotes — pass through
+            if (trimmed.startsWith('>')) {
                 result.push(line);
                 continue;
             }
-            // Handle bullet lines — fix orphaned indentation
-            if (/^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line)) {
-                var indent = line.match(/^(\t*)/)[1].length;
+            // Count indentation: convert spaces to tab-equivalents (2 spaces = 1 level)
+            var rawIndent = line.match(/^(\s*)/)[1];
+            var indent = 0;
+            for (var c = 0; c < rawIndent.length; c++) {
+                if (rawIndent[c] === '\t') {
+                    indent++;
+                }
+                else {
+                    // Count spaces: every 2 spaces = 1 indent level
+                    var spaceRun = 0;
+                    while (c < rawIndent.length && rawIndent[c] === ' ') {
+                        spaceRun++;
+                        c++;
+                    }
+                    c--; // compensate for loop increment
+                    indent += Math.floor(spaceRun / 2);
+                }
+            }
+            // Handle bullet lines (-, *, +, or numbered)
+            var isBullet = /^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line);
+            // Horizontal rules (---, ***, ___) — convert to a bullet with the text
+            if (/^[-*_]{3,}\s*$/.test(trimmed)) {
+                isBullet = false; // treat as bare text, will become "- ---"
+            }
+            if (isBullet) {
+                // Fix orphaned indentation
                 if (maxIndent === -1) {
-                    // First bullet after a heading — must be at indent 0
+                    // First bullet after a heading — force to indent 0
                     result.push(trimmed);
                     maxIndent = 0;
                 }
                 else if (indent > maxIndent + 1) {
-                    // Orphaned: indented too deep with no parent at the right level
-                    // Clamp to maxIndent + 1
+                    // Orphaned: indented too deep — clamp to maxIndent + 1
                     var fixedIndent = '\t'.repeat(maxIndent + 1);
                     result.push(fixedIndent + trimmed);
                     maxIndent = maxIndent + 1;
                 }
                 else {
-                    result.push(line);
+                    // Valid indentation — normalize to tabs
+                    var tabIndent = '\t'.repeat(indent);
+                    result.push(tabIndent + trimmed);
                     maxIndent = Math.max(maxIndent, indent);
                 }
                 continue;
             }
-            // Bare text line — convert to bullet at indent 0
+            // Everything else (bare text, #tags, horizontal rules, etc.)
+            // → convert to a bullet at the current level
             if (maxIndent === -1)
                 maxIndent = 0;
             result.push('- ' + trimmed);
