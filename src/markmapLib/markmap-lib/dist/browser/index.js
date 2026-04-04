@@ -8754,8 +8754,13 @@ const plugins = [katex, prism];
 
 function cleanNode(node, depth = 0) {
   if (node.t === 'heading') {
-    // drop all paragraphs
-    node.c = node.c.filter(item => item.t !== 'paragraph');
+    // Convert paragraphs to list_items so they become nodes instead of being dropped
+    node.c = node.c.map(item => {
+      if (item.t === 'paragraph') {
+        return Object.assign({}, item, { t: 'list_item' });
+      }
+      return item;
+    });
   } else if (node.t === 'list_item') {
     var _node$p;
 

@@ -9899,18 +9899,11 @@ class MindMap {
                             md += '\n';
                         }
                         else {
-                            //text
-                            md += `${space}- `;
+                            // Each line becomes its own bullet at the same level
                             textArr.forEach((t, i) => {
-                                var contentText = "void";
-                                if (t.trim().length > 0) {
-                                    contentText = t.trim();
-                                }
-                                if (i > 0) {
-                                    md += `${space}${contentText}${i === textArr.length - 1 ? ending : ''}\n`;
-                                }
-                                else {
-                                    md += `${contentText}\n`;
+                                var contentText = t.trim();
+                                if (contentText.length > 0) {
+                                    md += `${space}- ${contentText}${i === textArr.length - 1 ? ending : ''}\n`;
                                 }
                             });
                         }
@@ -36850,8 +36843,13 @@ const plugins = [katex, prism];
 
 function cleanNode(node, depth = 0) {
   if (node.t === 'heading') {
-    // drop all paragraphs
-    node.c = node.c.filter(item => item.t !== 'paragraph');
+    // Convert paragraphs to list_items so they become nodes instead of being dropped
+    node.c = node.c.map(item => {
+      if (item.t === 'paragraph') {
+        return Object.assign({}, item, { t: 'list_item' });
+      }
+      return item;
+    });
   } else if (node.t === 'list_item') {
     var _node$p;
 
@@ -39022,6 +39020,41 @@ class MindMapView extends obsidian.TextFileView {
         var md = str.trim().replace(FRONT_MATTER_REGEX, '');
         return md.trim();
     }
+    // Convert bare text lines (no bullet, no heading) into bullet points
+    // so the markmap parser doesn't silently drop them.
+    normalizeBullets(str) {
+        var lines = str.split('\n');
+        var result = [];
+        var inFence = false;
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var trimmed = line.trim();
+            // Track code fence state
+            if (trimmed.startsWith('```')) {
+                inFence = !inFence;
+                result.push(line);
+                continue;
+            }
+            if (inFence) {
+                result.push(line);
+                continue;
+            }
+            // Skip empty lines, headings, blockquotes
+            if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('>')) {
+                result.push(line);
+                continue;
+            }
+            // Skip lines that are already bullets (-, *, +) or numbered lists
+            if (/^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line)) {
+                result.push(line);
+                continue;
+            }
+            // Bare text line — convert to bullet at its current indentation
+            var indent = line.match(/^(\s*)/)[1];
+            result.push(indent + '- ' + trimmed);
+        }
+        return result.join('\n');
+    }
     mdToData(str) {
         var _a;
         function transformData(mapData) {
@@ -39048,6 +39081,7 @@ class MindMapView extends obsidian.TextFileView {
             return map;
         }
         if (str) {
+            str = this.normalizeBullets(str);
             const { root } = transformer.transform(str);
             const data = transformData(root);
             return data;

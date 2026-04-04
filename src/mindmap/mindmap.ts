@@ -2545,7 +2545,6 @@ export default class MindMap {
                 if (text) {
                     var textArr = text.split('\n');
                     var lineLength = textArr.length;
-
                     if (lineLength == 1) {
                         md += `${space}- ${text}${ending}\n`;
                     } else if (lineLength > 1) {
@@ -2558,17 +2557,11 @@ export default class MindMap {
                             });
                             md+='\n'
                         } else {
-                            //text
-                            md += `${space}- `;
+                            // Each line becomes its own bullet at the same level
                             textArr.forEach((t: string, i: number) => {
-                                var contentText = "void";
-                                if(t.trim().length > 0){
-                                    contentText = t.trim();
-                                }
-                                if (i > 0) {
-                                    md += `${space}${contentText}${i === textArr.length - 1 ? ending : '' }\n`
-                                } else {
-                                    md += `${contentText}\n`
+                                var contentText = t.trim();
+                                if (contentText.length > 0) {
+                                    md += `${space}- ${contentText}${i === textArr.length - 1 ? ending : '' }\n`;
                                 }
                             });
                         }

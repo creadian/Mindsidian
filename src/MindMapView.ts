@@ -498,6 +498,48 @@ export class MindMapView extends TextFileView implements HoverParent {
     return md.trim();
   }
 
+  // Convert bare text lines (no bullet, no heading) into bullet points
+  // so the markmap parser doesn't silently drop them.
+  normalizeBullets(str: string): string {
+    var lines = str.split('\n');
+    var result: string[] = [];
+    var inFence = false;
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var trimmed = line.trim();
+
+      // Track code fence state
+      if (trimmed.startsWith('```')) {
+        inFence = !inFence;
+        result.push(line);
+        continue;
+      }
+      if (inFence) {
+        result.push(line);
+        continue;
+      }
+
+      // Skip empty lines, headings, blockquotes
+      if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('>')) {
+        result.push(line);
+        continue;
+      }
+
+      // Skip lines that are already bullets (-, *, +) or numbered lists
+      if (/^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line)) {
+        result.push(line);
+        continue;
+      }
+
+      // Bare text line — convert to bullet at its current indentation
+      var indent = line.match(/^(\s*)/)[1];
+      result.push(indent + '- ' + trimmed);
+    }
+
+    return result.join('\n');
+  }
+
   mdToData(str: string) {
     function transformData(mapData: any) {
       var flag = true;
@@ -528,6 +570,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     }
 
     if (str) {
+      str = this.normalizeBullets(str);
       const { root } = transformer.transform(str);
       const data = transformData(root);
       return data;
