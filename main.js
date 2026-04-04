@@ -39020,12 +39020,16 @@ class MindMapView extends obsidian.TextFileView {
         var md = str.trim().replace(FRONT_MATTER_REGEX, '');
         return md.trim();
     }
-    // Convert bare text lines (no bullet, no heading) into bullet points
-    // so the markmap parser doesn't silently drop them.
+    // Normalize markdown so the markmap parser doesn't silently drop content.
+    // 1. Bare text lines (no bullet) → converted to bullets
+    // 2. Orphaned indented bullets (indented but no parent at lower level) → un-indented
     normalizeBullets(str) {
         var lines = str.split('\n');
         var result = [];
         var inFence = false;
+        // Track the current valid indentation depth (number of leading tabs)
+        // -1 means we're right after a heading (no bullets yet)
+        var maxIndent = -1;
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i];
             var trimmed = line.trim();
@@ -39039,19 +39043,42 @@ class MindMapView extends obsidian.TextFileView {
                 result.push(line);
                 continue;
             }
-            // Skip empty lines, headings, blockquotes
-            if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('>')) {
+            // Headings reset indentation context
+            if (trimmed.startsWith('#')) {
+                maxIndent = -1;
                 result.push(line);
                 continue;
             }
-            // Skip lines that are already bullets (-, *, +) or numbered lists
+            // Skip empty lines, blockquotes
+            if (trimmed === '' || trimmed.startsWith('>')) {
+                result.push(line);
+                continue;
+            }
+            // Handle bullet lines — fix orphaned indentation
             if (/^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line)) {
-                result.push(line);
+                var indent = line.match(/^(\t*)/)[1].length;
+                if (maxIndent === -1) {
+                    // First bullet after a heading — must be at indent 0
+                    result.push(trimmed);
+                    maxIndent = 0;
+                }
+                else if (indent > maxIndent + 1) {
+                    // Orphaned: indented too deep with no parent at the right level
+                    // Clamp to maxIndent + 1
+                    var fixedIndent = '\t'.repeat(maxIndent + 1);
+                    result.push(fixedIndent + trimmed);
+                    maxIndent = maxIndent + 1;
+                }
+                else {
+                    result.push(line);
+                    maxIndent = Math.max(maxIndent, indent);
+                }
                 continue;
             }
-            // Bare text line — convert to bullet at its current indentation
-            var indent = line.match(/^(\s*)/)[1];
-            result.push(indent + '- ' + trimmed);
+            // Bare text line — convert to bullet at indent 0
+            if (maxIndent === -1)
+                maxIndent = 0;
+            result.push('- ' + trimmed);
         }
         return result.join('\n');
     }
