@@ -1,4 +1,4 @@
-# Claude Mindmap
+# Mindsidian
 
 An interactive mind map plugin for Obsidian. Turn any markdown file into a visual mind map and edit it directly.
 
