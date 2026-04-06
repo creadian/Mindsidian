@@ -8164,6 +8164,8 @@ class MindMap {
             this.containerEL.style.touchAction = 'none';
             // GPU-accelerate the transform layer on iOS
             this.appEl.style.willChange = 'transform';
+            // Kill iOS rubber-band overscroll that conflicts with custom panning
+            this.containerEL.style.overscrollBehavior = 'none';
             this.appEl.addEventListener('touchstart', this.appTouchStart, { passive: false });
             this.appEl.addEventListener('touchmove', this.appTouchMove, { passive: false });
             this.appEl.addEventListener('touchend', this.appTouchEnd);
