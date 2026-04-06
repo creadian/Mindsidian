@@ -25,6 +25,17 @@
   shape-rendering: geometricPrecision;
 }
 
+/* Reduce text blur during zoom transforms on iOS */
+.mm-mindmap .mm-node {
+  -webkit-font-smoothing: antialiased;
+  -webkit-backface-visibility: hidden;
+}
+/* Content layer gets its own compositing context */
+.mm-mindmap > div {
+  -webkit-backface-visibility: hidden;
+  -webkit-transform: translate3d(0,0,0);
+}
+
 /* --- Node base --- */
 .mm-node {
   position: absolute;

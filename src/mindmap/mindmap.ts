@@ -1901,9 +1901,7 @@ export default class MindMap {
     _longPressTimer: any = null;
     _isTouchPanning: boolean = false;
     _wasPinching: boolean = false;
-    _touchRafId: number = 0;
-    _touchPendingScroll: { left: number, top: number } | null = null;
-    _touchPendingScale: number = 0;
+    _isTouchZooming: boolean = false;
 
     _getTouchDist(touches: TouchList): number {
         var dx = touches[0].pageX - touches[1].pageX;
@@ -1911,23 +1909,17 @@ export default class MindMap {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    _touchApplyFrame() {
-        if (this._touchPendingScale > 0) {
-            this.scale(this._touchPendingScale);
-            this._touchPendingScale = 0;
+    // Lightweight scale during active pinch — only sets the CSS transform.
+    // Menu and dot sizes are deferred to touchend to avoid layout thrashing.
+    _scaleFast(num: number) {
+        if (num < 20) num = 20;
+        if (num > 300) num = 300;
+        this.mindScale = num;
+        var scaleVal = num / 100;
+        if (this.scalePointer.length) {
+            this.appEl.style.transformOrigin = `${this.scalePointer[0]}px ${this.scalePointer[1]}px`;
         }
-        if (this._touchPendingScroll) {
-            this.containerEL.scrollLeft = this._touchPendingScroll.left;
-            this.containerEL.scrollTop = this._touchPendingScroll.top;
-            this._touchPendingScroll = null;
-        }
-        this._touchRafId = 0;
-    }
-
-    _touchScheduleFrame() {
-        if (!this._touchRafId) {
-            this._touchRafId = requestAnimationFrame(() => this._touchApplyFrame());
-        }
+        this.appEl.style.transform = `scale(${scaleVal}) translate3d(0,0,0)`;
     }
 
     appTouchStart(evt: TouchEvent) {
@@ -1935,8 +1927,12 @@ export default class MindMap {
             // Pinch-to-zoom start
             evt.preventDefault();
             this._wasPinching = true;
+            this._isTouchZooming = true;
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
+
+            // Hide menu during pinch to reduce render work
+            this._menuDom.style.display = 'none';
 
             // Set zoom origin to midpoint between fingers (relative to appEl)
             var rect = this.appEl.getBoundingClientRect();
@@ -1986,15 +1982,13 @@ export default class MindMap {
         }
 
         if (evt.touches.length === 2) {
-            // Pinch-to-zoom — origin was set on pinch start, keep it fixed
+            // Pinch-to-zoom — lightweight path, only CSS transform
             evt.preventDefault();
             var dist = this._getTouchDist(evt.touches);
             var ratio = dist / this._pinchStartDist;
-            // No rounding — fractional scale for smooth pinch
             var newScale = this._pinchStartScale * ratio;
             newScale = Math.max(20, Math.min(300, newScale));
-            this._touchPendingScale = newScale;
-            this._touchScheduleFrame();
+            this._scaleFast(newScale);
             return;
         }
 
@@ -2007,11 +2001,9 @@ export default class MindMap {
             }
             if (this._isTouchPanning) {
                 evt.preventDefault();
-                this._touchPendingScroll = {
-                    left: this._touchScrollLeft - dx,
-                    top: this._touchScrollTop - dy
-                };
-                this._touchScheduleFrame();
+                // Direct scroll assignment — no rAF delay for panning
+                this.containerEL.scrollLeft = this._touchScrollLeft - dx;
+                this.containerEL.scrollTop = this._touchScrollTop - dy;
             }
         }
     }
@@ -2023,15 +2015,14 @@ export default class MindMap {
         }
         this._isTouchPanning = false;
         this._pinchStartDist = 0;
+        // When pinch ends, do the full scale() to update menu/dot sizes
+        if (this._isTouchZooming) {
+            this._isTouchZooming = false;
+            this.scale(this.mindScale);
+        }
         // Only clear pinch flag when ALL fingers are lifted
         if (evt.touches.length === 0) {
             this._wasPinching = false;
-        }
-        // Flush any pending frame immediately on finger lift
-        if (this._touchRafId) {
-            cancelAnimationFrame(this._touchRafId);
-            this._touchRafId = 0;
-            this._touchApplyFrame();
         }
     }
 
@@ -2043,13 +2034,8 @@ export default class MindMap {
         }
         this._isTouchPanning = false;
         this._wasPinching = false;
+        this._isTouchZooming = false;
         this._pinchStartDist = 0;
-        this._touchPendingScale = 0;
-        this._touchPendingScroll = null;
-        if (this._touchRafId) {
-            cancelAnimationFrame(this._touchRafId);
-            this._touchRafId = 0;
-        }
     }
 
     appDblclickFn(evt: MouseEvent) {
