@@ -9381,11 +9381,23 @@ class MindMap {
             var containerRect = this.containerEL.getBoundingClientRect();
             this._pinchMidX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2 - containerRect.left;
             this._pinchMidY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2 - containerRect.top;
-            // The content coordinate under the finger midpoint — fixed for the gesture.
-            // With transformOrigin 0,0 and scale s, element point x renders at x*s.
-            // Visible at viewport position: x*s - scrollLeft = midX
-            // So: x = (scrollLeft + midX) / s
+            // Normalize transformOrigin to 0,0 before computing content coords.
+            // Other operations (center, centerOnNode, desktop zoom) may have set
+            // scalePointer to a non-zero value. With origin (ox,oy) at scale s,
+            // point x renders at: x*s + ox*(1-s). Changing to origin 0: x*s.
+            // To keep viewport stable: scrollLeft += ox * (s - 1)
             var currentScaleFrac = this.mindScale / 100;
+            if (this.scalePointer.length && currentScaleFrac !== 1) {
+                var ox = this.scalePointer[0];
+                var oy = this.scalePointer[1];
+                this.containerEL.scrollLeft += ox * (currentScaleFrac - 1);
+                this.containerEL.scrollTop += oy * (currentScaleFrac - 1);
+            }
+            this.scalePointer = [];
+            this.appEl.style.transformOrigin = '0px 0px';
+            this.appEl.style.transform = `scale(${currentScaleFrac}) translate3d(0,0,0)`;
+            // NOW compute the content coordinate under the finger midpoint.
+            // With origin 0,0: x = (scrollLeft + midX) / scale
             this._pinchContentX = (this.containerEL.scrollLeft + this._pinchMidX) / currentScaleFrac;
             this._pinchContentY = (this.containerEL.scrollTop + this._pinchMidY) / currentScaleFrac;
             this._menuDom.style.display = 'none';
@@ -9421,13 +9433,17 @@ class MindMap {
             var newScaleFrac = newScale / 100;
             // Set scale with fixed origin at 0,0
             this.mindScale = newScale;
-            this.scalePointer = [];
-            this.appEl.style.transformOrigin = '0px 0px';
             this.appEl.style.transform = `scale(${newScaleFrac}) translate3d(0,0,0)`;
             // Scroll so the content point stays under the fingers:
             // contentX * newScale = scrollLeft + midX
-            this.containerEL.scrollLeft = this._pinchContentX * newScaleFrac - this._pinchMidX;
-            this.containerEL.scrollTop = this._pinchContentY * newScaleFrac - this._pinchMidY;
+            // Clamp to valid scroll range — at extreme zoom the canvas may be
+            // smaller than the viewport, and the browser clamps scrollLeft to 0.
+            var targetScrollLeft = this._pinchContentX * newScaleFrac - this._pinchMidX;
+            var targetScrollTop = this._pinchContentY * newScaleFrac - this._pinchMidY;
+            var maxScrollLeft = this.appEl.scrollWidth * newScaleFrac - this.containerEL.clientWidth;
+            var maxScrollTop = this.appEl.scrollHeight * newScaleFrac - this.containerEL.clientHeight;
+            this.containerEL.scrollLeft = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft));
+            this.containerEL.scrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
             return;
         }
     }
