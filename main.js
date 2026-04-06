@@ -7918,15 +7918,11 @@ class MindMap {
         this.isComposing = false;
         this.isFocused = true;
         // --- Mobile touch handlers ---
-        this._touchStartX = 0;
-        this._touchStartY = 0;
-        this._touchScrollLeft = 0;
-        this._touchScrollTop = 0;
+        // Panning is handled 100% by native iOS scrolling (smooth, 120Hz, hardware-accelerated).
+        // We only intercept: (1) two-finger pinch for zoom, (2) long-press for node editing.
         this._pinchStartDist = 0;
         this._pinchStartScale = 100;
         this._longPressTimer = null;
-        this._isTouchPanning = false;
-        this._wasPinching = false;
         this._isTouchZooming = false;
         this._scrollScaleTimeout = null;
         this._lastScrollDir = 0;
@@ -8156,14 +8152,13 @@ class MindMap {
             this.appEl.addEventListener('mousemove', this.appMouseMove);
         }
         else {
-            // Mobile: touch events for panning and pinch-to-zoom
-            // touch-action: none tells iOS to not try its own gesture handling
-            this.appEl.style.touchAction = 'none';
-            this.containerEL.style.touchAction = 'none';
-            // GPU-accelerate the transform layer on iOS
+            // Mobile: let iOS handle panning natively (smooth, hardware-accelerated).
+            // Only intercept 2-finger pinch for custom zoom + long-press for edit.
+            // touch-action: pan-x pan-y allows native scroll, blocks native pinch
+            // so we can handle zoom in JS without fighting iOS.
+            this.appEl.style.touchAction = 'pan-x pan-y';
+            this.containerEL.style.touchAction = 'pan-x pan-y';
             this.appEl.style.willChange = 'transform';
-            // Kill iOS rubber-band overscroll that conflicts with custom panning
-            this.containerEL.style.overscrollBehavior = 'none';
             this.appEl.addEventListener('touchstart', this.appTouchStart, { passive: false });
             this.appEl.addEventListener('touchmove', this.appTouchMove, { passive: false });
             this.appEl.addEventListener('touchend', this.appTouchEnd);
@@ -9376,26 +9371,21 @@ class MindMap {
     }
     appTouchStart(evt) {
         if (evt.touches.length === 2) {
-            // Pinch-to-zoom start
+            // Pinch-to-zoom start — prevent native zoom, we handle it
             evt.preventDefault();
-            // Cancel any in-progress panning
-            this._isTouchPanning = false;
-            this._wasPinching = true;
             this._isTouchZooming = true;
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
             // Hide menu during pinch to reduce render work
             this._menuDom.style.display = 'none';
-            // Calculate new zoom origin at midpoint between fingers
+            // Calculate zoom origin at midpoint between fingers
             var rect = this.appEl.getBoundingClientRect();
             var midX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2;
             var midY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2;
             var currentScale = this.mindScale / 100;
             var newOriginX = (midX - rect.left) / currentScale;
             var newOriginY = (midY - rect.top) / currentScale;
-            // Compensate scroll to prevent visual jump when origin changes.
-            // Changing transformOrigin shifts where the scale "anchors" —
-            // the content visually moves by (newOrigin - oldOrigin) * (scale - 1).
+            // Compensate scroll to prevent visual jump when origin changes
             if (this.scalePointer.length && currentScale !== 1) {
                 var dOriginX = (newOriginX - this.scalePointer[0]) * (currentScale - 1);
                 var dOriginY = (newOriginY - this.scalePointer[1]) * (currentScale - 1);
@@ -9403,7 +9393,6 @@ class MindMap {
                 this.containerEL.scrollTop += dOriginY;
             }
             this.scalePointer = [newOriginX, newOriginY];
-            // Apply the new origin immediately so the first pinch frame is correct
             this.appEl.style.transformOrigin = `${newOriginX}px ${newOriginY}px`;
             return;
         }
@@ -9421,14 +9410,6 @@ class MindMap {
                     }
                 }, 500);
             }
-            // Always record touch start for panning — even on nodes.
-            // Long-press handles editing; if finger moves, panning kicks in.
-            // Without this, stale _touchStartX from a previous touch causes jumps.
-            this._isTouchPanning = false;
-            this._touchStartX = evt.touches[0].pageX;
-            this._touchStartY = evt.touches[0].pageY;
-            this._touchScrollLeft = this.containerEL.scrollLeft;
-            this._touchScrollTop = this.containerEL.scrollTop;
         }
     }
     appTouchMove(evt) {
@@ -9437,7 +9418,7 @@ class MindMap {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
-        if (evt.touches.length === 2) {
+        if (evt.touches.length === 2 && this._isTouchZooming) {
             // Pinch-to-zoom — lightweight path, only CSS transform
             evt.preventDefault();
             var dist = this._getTouchDist(evt.touches);
@@ -9447,48 +9428,28 @@ class MindMap {
             this._scaleFast(newScale);
             return;
         }
-        if (evt.touches.length === 1 && this._touchStartX !== 0 && !this._wasPinching) {
-            var dx = evt.touches[0].pageX - this._touchStartX;
-            var dy = evt.touches[0].pageY - this._touchStartY;
-            // Only start panning after finger moves more than 5px (avoids blocking taps)
-            if (!this._isTouchPanning && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
-                this._isTouchPanning = true;
-            }
-            if (this._isTouchPanning) {
-                evt.preventDefault();
-                // Direct scroll assignment — no rAF delay for panning
-                this.containerEL.scrollLeft = this._touchScrollLeft - dx;
-                this.containerEL.scrollTop = this._touchScrollTop - dy;
-            }
-        }
+        // 1-finger moves: do nothing — native iOS scrolling handles panning
     }
     appTouchEnd(evt) {
         if (this._longPressTimer) {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
-        this._isTouchPanning = false;
-        this._pinchStartDist = 0;
         // When pinch ends, do the full scale() to update menu/dot sizes
-        if (this._isTouchZooming) {
+        if (this._isTouchZooming && evt.touches.length < 2) {
             this._isTouchZooming = false;
             this.scale(this.mindScale);
         }
-        // Only clear pinch flag when ALL fingers are lifted
-        if (evt.touches.length === 0) {
-            this._wasPinching = false;
-        }
     }
     appTouchCancel(evt) {
-        // iOS fires touchcancel when system takes over (notifications, gestures)
         if (this._longPressTimer) {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
-        this._isTouchPanning = false;
-        this._wasPinching = false;
-        this._isTouchZooming = false;
-        this._pinchStartDist = 0;
+        if (this._isTouchZooming) {
+            this._isTouchZooming = false;
+            this.scale(this.mindScale);
+        }
     }
     appDblclickFn(evt) {
         var _a;
