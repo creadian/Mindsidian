@@ -39121,10 +39121,21 @@ class MindMapView extends obsidian.TextFileView {
                 continue;
             }
             // Everything else (bare text, #tags, horizontal rules, etc.)
-            // → convert to a bullet at the current level
-            if (maxIndent === -1)
+            // → convert to a bullet, respecting its indentation
+            if (maxIndent === -1) {
+                result.push('- ' + trimmed);
                 maxIndent = 0;
-            result.push('- ' + trimmed);
+            }
+            else if (indent > maxIndent + 1) {
+                var fixedIndent = '\t'.repeat(maxIndent + 1);
+                result.push(fixedIndent + '- ' + trimmed);
+                maxIndent = maxIndent + 1;
+            }
+            else {
+                var tabIndent = '\t'.repeat(indent);
+                result.push(tabIndent + '- ' + trimmed);
+                maxIndent = indent;
+            }
         }
         return result.join('\n');
     }
