@@ -1,7 +1,7 @@
 {
 	"id": "mindsidian",
 	"name": "Mindsidian",
-	"version": "0.4.2",
+	"version": "0.4.3",
 	"minAppVersion": "0.9.12",
 	"description": "A beautiful, interactive mind map plugin for Obsidian. Fork of Enhancing Mindmap by Mark.",
 	"author": "Christian & Claude",
