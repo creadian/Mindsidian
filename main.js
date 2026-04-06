@@ -7922,6 +7922,10 @@ class MindMap {
         // We only intercept: (1) two-finger pinch for zoom, (2) long-press for node editing.
         this._pinchStartDist = 0;
         this._pinchStartScale = 100;
+        this._pinchStartScrollLeft = 0;
+        this._pinchStartScrollTop = 0;
+        this._pinchMidX = 0;
+        this._pinchMidY = 0;
         this._longPressTimer = null;
         this._isTouchZooming = false;
         this._scrollScaleTimeout = null;
@@ -9355,20 +9359,6 @@ class MindMap {
         var dy = touches[0].pageY - touches[1].pageY;
         return Math.sqrt(dx * dx + dy * dy);
     }
-    // Lightweight scale during active pinch — only sets the CSS transform.
-    // Menu and dot sizes are deferred to touchend to avoid layout thrashing.
-    _scaleFast(num) {
-        if (num < 20)
-            num = 20;
-        if (num > 300)
-            num = 300;
-        this.mindScale = num;
-        var scaleVal = num / 100;
-        if (this.scalePointer.length) {
-            this.appEl.style.transformOrigin = `${this.scalePointer[0]}px ${this.scalePointer[1]}px`;
-        }
-        this.appEl.style.transform = `scale(${scaleVal}) translate3d(0,0,0)`;
-    }
     appTouchStart(evt) {
         if (evt.touches.length === 2) {
             // Pinch-to-zoom start — prevent native zoom, we handle it
@@ -9376,24 +9366,13 @@ class MindMap {
             this._isTouchZooming = true;
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
+            this._pinchStartScrollLeft = this.containerEL.scrollLeft;
+            this._pinchStartScrollTop = this.containerEL.scrollTop;
+            // Record finger midpoint in viewport coords (doesn't change with zoom)
+            this._pinchMidX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2;
+            this._pinchMidY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2;
             // Hide menu during pinch to reduce render work
             this._menuDom.style.display = 'none';
-            // Calculate zoom origin at midpoint between fingers
-            var rect = this.appEl.getBoundingClientRect();
-            var midX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2;
-            var midY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2;
-            var currentScale = this.mindScale / 100;
-            var newOriginX = (midX - rect.left) / currentScale;
-            var newOriginY = (midY - rect.top) / currentScale;
-            // Compensate scroll to prevent visual jump when origin changes
-            if (this.scalePointer.length && currentScale !== 1) {
-                var dOriginX = (newOriginX - this.scalePointer[0]) * (currentScale - 1);
-                var dOriginY = (newOriginY - this.scalePointer[1]) * (currentScale - 1);
-                this.containerEL.scrollLeft += dOriginX;
-                this.containerEL.scrollTop += dOriginY;
-            }
-            this.scalePointer = [newOriginX, newOriginY];
-            this.appEl.style.transformOrigin = `${newOriginX}px ${newOriginY}px`;
             return;
         }
         if (evt.touches.length === 1) {
@@ -9419,13 +9398,36 @@ class MindMap {
             this._longPressTimer = null;
         }
         if (evt.touches.length === 2 && this._isTouchZooming) {
-            // Pinch-to-zoom — lightweight path, only CSS transform
             evt.preventDefault();
             var dist = this._getTouchDist(evt.touches);
             var ratio = dist / this._pinchStartDist;
             var newScale = this._pinchStartScale * ratio;
             newScale = Math.max(20, Math.min(300, newScale));
-            this._scaleFast(newScale);
+            // Zoom centered on fingers using fixed origin (0,0) + scroll compensation.
+            // The point under the finger midpoint should stay under the finger midpoint.
+            //
+            // At pinch start, the content point under the midpoint is:
+            //   contentX = (scrollLeft + midX) / startScale
+            // After scaling to newScale, that same content point renders at:
+            //   renderedX = contentX * newScale
+            // To keep it under the midpoint, we need:
+            //   newScrollLeft = renderedX - midX = contentX * newScale - midX
+            var containerRect = this.containerEL.getBoundingClientRect();
+            var midXInContainer = this._pinchMidX - containerRect.left;
+            var midYInContainer = this._pinchMidY - containerRect.top;
+            var startScaleFrac = this._pinchStartScale / 100;
+            var newScaleFrac = newScale / 100;
+            // Content point under fingers at pinch start
+            var contentX = (this._pinchStartScrollLeft + midXInContainer) / startScaleFrac;
+            var contentY = (this._pinchStartScrollTop + midYInContainer) / startScaleFrac;
+            // Apply scale with fixed origin at 0,0 — no transformOrigin changes, no jumps
+            this.mindScale = newScale;
+            this.scalePointer = [];
+            this.appEl.style.transformOrigin = '0px 0px';
+            this.appEl.style.transform = `scale(${newScaleFrac}) translate3d(0,0,0)`;
+            // Scroll so the content point stays under the fingers
+            this.containerEL.scrollLeft = contentX * newScaleFrac - midXInContainer;
+            this.containerEL.scrollTop = contentY * newScaleFrac - midYInContainer;
             return;
         }
         // 1-finger moves: do nothing — native iOS scrolling handles panning
