@@ -1901,15 +1901,15 @@ export default class MindMap {
     // Panning: 100% native iOS scrolling (smooth, 120Hz, hardware-accelerated).
     // We only intercept: (1) two-finger pinch for zoom, (2) long-press for node editing.
     //
-    // Zoom approach adapted from markmind (obsidian-markmind):
-    //   - Fixed transformOrigin at 0,0 (never changes)
-    //   - scaleInCenter formula adjusts scroll so focal point stays fixed:
-    //     factor = 1 - newScale/oldScale
-    //     scroll += (focalPoint - scroll) * factor
+    // Zoom: fixed transformOrigin at 0,0. At pinch start, compute the content
+    // coordinate under the finger midpoint (doesn't change during gesture).
+    // Each frame: scrollLeft = contentX * newScale - fingerMidX
     _pinchStartDist: number = 0;
     _pinchStartScale: number = 100;
-    _pinchMidXInContainer: number = 0;
-    _pinchMidYInContainer: number = 0;
+    _pinchContentX: number = 0;
+    _pinchContentY: number = 0;
+    _pinchMidX: number = 0;
+    _pinchMidY: number = 0;
     _longPressTimer: any = null;
     _isTouchZooming: boolean = false;
 
@@ -1926,10 +1926,18 @@ export default class MindMap {
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
 
-            // Record finger midpoint relative to container (viewport)
+            // Finger midpoint relative to container viewport
             var containerRect = this.containerEL.getBoundingClientRect();
-            this._pinchMidXInContainer = (evt.touches[0].clientX + evt.touches[1].clientX) / 2 - containerRect.left;
-            this._pinchMidYInContainer = (evt.touches[0].clientY + evt.touches[1].clientY) / 2 - containerRect.top;
+            this._pinchMidX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2 - containerRect.left;
+            this._pinchMidY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2 - containerRect.top;
+
+            // The content coordinate under the finger midpoint — fixed for the gesture.
+            // With transformOrigin 0,0 and scale s, element point x renders at x*s.
+            // Visible at viewport position: x*s - scrollLeft = midX
+            // So: x = (scrollLeft + midX) / s
+            var currentScaleFrac = this.mindScale / 100;
+            this._pinchContentX = (this.containerEL.scrollLeft + this._pinchMidX) / currentScaleFrac;
+            this._pinchContentY = (this.containerEL.scrollTop + this._pinchMidY) / currentScaleFrac;
 
             this._menuDom.style.display = 'none';
             return;
@@ -1965,26 +1973,18 @@ export default class MindMap {
             var ratio = dist / this._pinchStartDist;
             var newScale = this._pinchStartScale * ratio;
             newScale = Math.max(20, Math.min(300, newScale));
+            var newScaleFrac = newScale / 100;
 
-            var oldScale = this.mindScale;
-
-            // Apply markmind's scaleInCenter formula:
-            // The focal point (finger midpoint in content coords) stays fixed.
-            // focalX = scrollLeft + midXInContainer (screen position → content position)
-            // factor = 1 - newScale/oldScale
-            // scrollLeft += (focalX - scrollLeft) * factor
-            // Which simplifies to: scrollLeft += midXInContainer * factor
-            var factor = 1 - (newScale / oldScale);
-            var focalX = this.containerEL.scrollLeft + this._pinchMidXInContainer;
-            var focalY = this.containerEL.scrollTop + this._pinchMidYInContainer;
-            this.containerEL.scrollLeft += focalX * factor;
-            this.containerEL.scrollTop += focalY * factor;
-
-            // Apply scale — fixed origin at 0,0, no transformOrigin changes
+            // Set scale with fixed origin at 0,0
             this.mindScale = newScale;
             this.scalePointer = [];
             this.appEl.style.transformOrigin = '0px 0px';
-            this.appEl.style.transform = `scale(${newScale / 100}) translate3d(0,0,0)`;
+            this.appEl.style.transform = `scale(${newScaleFrac}) translate3d(0,0,0)`;
+
+            // Scroll so the content point stays under the fingers:
+            // contentX * newScale = scrollLeft + midX
+            this.containerEL.scrollLeft = this._pinchContentX * newScaleFrac - this._pinchMidX;
+            this.containerEL.scrollTop = this._pinchContentY * newScaleFrac - this._pinchMidY;
             return;
         }
     }
