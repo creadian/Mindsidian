@@ -39032,6 +39032,19 @@ class MindMapView extends obsidian.TextFileView {
         // Track the current valid indentation depth (in tab-equivalents)
         // -1 means we're right after a heading (no bullets yet)
         var maxIndent = -1;
+        // Auto-detect space indent size by finding the smallest non-zero
+        // space indentation used in the file (commonly 2 or 4)
+        var spaceIndent = 2; // default
+        for (var s = 0; s < lines.length; s++) {
+            var spaceMatch = lines[s].match(/^( +)[-*+]\s/);
+            if (spaceMatch) {
+                var len = spaceMatch[1].length;
+                if (len > 0) {
+                    spaceIndent = len;
+                    break;
+                }
+            }
+        }
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i];
             var trimmed = line.trim();
@@ -39062,7 +39075,7 @@ class MindMapView extends obsidian.TextFileView {
                 result.push(line);
                 continue;
             }
-            // Count indentation: convert spaces to tab-equivalents (2 spaces = 1 level)
+            // Count indentation: convert spaces to tab-equivalents
             var rawIndent = line.match(/^(\s*)/)[1];
             var indent = 0;
             for (var c = 0; c < rawIndent.length; c++) {
@@ -39070,14 +39083,14 @@ class MindMapView extends obsidian.TextFileView {
                     indent++;
                 }
                 else {
-                    // Count spaces: every 2 spaces = 1 indent level
+                    // Count spaces using auto-detected indent size
                     var spaceRun = 0;
                     while (c < rawIndent.length && rawIndent[c] === ' ') {
                         spaceRun++;
                         c++;
                     }
                     c--; // compensate for loop increment
-                    indent += Math.floor(spaceRun / 2);
+                    indent += Math.floor(spaceRun / spaceIndent);
                 }
             }
             // Handle bullet lines (-, *, +, or numbered)
@@ -39103,7 +39116,7 @@ class MindMapView extends obsidian.TextFileView {
                     // Valid indentation — normalize to tabs
                     var tabIndent = '\t'.repeat(indent);
                     result.push(tabIndent + trimmed);
-                    maxIndent = Math.max(maxIndent, indent);
+                    maxIndent = indent;
                 }
                 continue;
             }
