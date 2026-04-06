@@ -3,6 +3,17 @@
    A modern, warm design for mind mapping
    ============================================ */
 
+/* Hide scrollbars on mobile — touch panning doesn't need them,
+   and they create ghost artifacts during pinch zoom */
+.is-mobile .mm-mindmap,
+.is-mobile .mm-mindmap *::-webkit-scrollbar {
+  scrollbar-width: none; /* Firefox */
+}
+.is-mobile .mm-mindmap::-webkit-scrollbar,
+.is-mobile .workspace-leaf-content:has(.mm-mindmap) ::-webkit-scrollbar {
+  display: none; /* WebKit/iOS */
+}
+
 /* --- Base canvas --- */
 .mm-mindmap {
   color: var(--text-normal, #333);
