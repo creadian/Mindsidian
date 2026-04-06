@@ -11,6 +11,18 @@
   width: 8000px;
   height: 8000px;
   line-height: 1.5;
+  /* GPU compositing on iOS — prevents jank during transforms */
+  -webkit-transform: translate3d(0,0,0);
+  -webkit-backface-visibility: hidden;
+}
+
+/* Fix SVG rendering artifacts on iOS — "strange lines" during zoom */
+.mm-mindmap svg {
+  shape-rendering: geometricPrecision;
+  -webkit-backface-visibility: hidden;
+}
+.mm-mindmap svg path {
+  shape-rendering: geometricPrecision;
 }
 
 /* --- Node base --- */

@@ -7927,6 +7927,9 @@ class MindMap {
         this._longPressTimer = null;
         this._isTouchPanning = false;
         this._wasPinching = false;
+        this._touchRafId = 0;
+        this._touchPendingScroll = null;
+        this._touchPendingScale = 0;
         this._scrollScaleTimeout = null;
         this._lastScrollDir = 0;
         this._scrollAccum = 0;
@@ -7990,6 +7993,7 @@ class MindMap {
         this.appTouchStart = this.appTouchStart.bind(this);
         this.appTouchMove = this.appTouchMove.bind(this);
         this.appTouchEnd = this.appTouchEnd.bind(this);
+        this.appTouchCancel = this.appTouchCancel.bind(this);
         this.appFocusIn = this.appFocusIn.bind(this);
         this.appFocusOut = this.appFocusOut.bind(this);
         //custom event
@@ -8155,9 +8159,15 @@ class MindMap {
         }
         else {
             // Mobile: touch events for panning and pinch-to-zoom
+            // touch-action: none tells iOS to not try its own gesture handling
+            this.appEl.style.touchAction = 'none';
+            this.containerEL.style.touchAction = 'none';
+            // GPU-accelerate the transform layer on iOS
+            this.appEl.style.willChange = 'transform';
             this.appEl.addEventListener('touchstart', this.appTouchStart, { passive: false });
             this.appEl.addEventListener('touchmove', this.appTouchMove, { passive: false });
             this.appEl.addEventListener('touchend', this.appTouchEnd);
+            this.appEl.addEventListener('touchcancel', this.appTouchCancel);
         }
         this.containerEL.addEventListener('focusin', this.appFocusIn);
         this.containerEL.addEventListener('focusout', this.appFocusOut);
@@ -8189,6 +8199,7 @@ class MindMap {
             this.appEl.removeEventListener('touchstart', this.appTouchStart);
             this.appEl.removeEventListener('touchmove', this.appTouchMove);
             this.appEl.removeEventListener('touchend', this.appTouchEnd);
+            this.appEl.removeEventListener('touchcancel', this.appTouchCancel);
         }
         this.containerEL.removeEventListener('focusin', this.appFocusIn);
         this.containerEL.removeEventListener('focusout', this.appFocusOut);
@@ -9349,6 +9360,23 @@ class MindMap {
         var dy = touches[0].pageY - touches[1].pageY;
         return Math.sqrt(dx * dx + dy * dy);
     }
+    _touchApplyFrame() {
+        if (this._touchPendingScale > 0) {
+            this.scale(this._touchPendingScale);
+            this._touchPendingScale = 0;
+        }
+        if (this._touchPendingScroll) {
+            this.containerEL.scrollLeft = this._touchPendingScroll.left;
+            this.containerEL.scrollTop = this._touchPendingScroll.top;
+            this._touchPendingScroll = null;
+        }
+        this._touchRafId = 0;
+    }
+    _touchScheduleFrame() {
+        if (!this._touchRafId) {
+            this._touchRafId = requestAnimationFrame(() => this._touchApplyFrame());
+        }
+    }
     appTouchStart(evt) {
         if (evt.touches.length === 2) {
             // Pinch-to-zoom start
@@ -9403,9 +9431,11 @@ class MindMap {
             evt.preventDefault();
             var dist = this._getTouchDist(evt.touches);
             var ratio = dist / this._pinchStartDist;
-            var newScale = Math.round(this._pinchStartScale * ratio);
+            // No rounding — fractional scale for smooth pinch
+            var newScale = this._pinchStartScale * ratio;
             newScale = Math.max(20, Math.min(300, newScale));
-            this.scale(newScale);
+            this._touchPendingScale = newScale;
+            this._touchScheduleFrame();
             return;
         }
         if (evt.touches.length === 1 && this._touchStartX !== 0 && !this._wasPinching) {
@@ -9417,8 +9447,11 @@ class MindMap {
             }
             if (this._isTouchPanning) {
                 evt.preventDefault();
-                this.containerEL.scrollLeft = this._touchScrollLeft - dx;
-                this.containerEL.scrollTop = this._touchScrollTop - dy;
+                this._touchPendingScroll = {
+                    left: this._touchScrollLeft - dx,
+                    top: this._touchScrollTop - dy
+                };
+                this._touchScheduleFrame();
             }
         }
     }
@@ -9432,6 +9465,28 @@ class MindMap {
         // Only clear pinch flag when ALL fingers are lifted
         if (evt.touches.length === 0) {
             this._wasPinching = false;
+        }
+        // Flush any pending frame immediately on finger lift
+        if (this._touchRafId) {
+            cancelAnimationFrame(this._touchRafId);
+            this._touchRafId = 0;
+            this._touchApplyFrame();
+        }
+    }
+    appTouchCancel(evt) {
+        // iOS fires touchcancel when system takes over (notifications, gestures)
+        if (this._longPressTimer) {
+            clearTimeout(this._longPressTimer);
+            this._longPressTimer = null;
+        }
+        this._isTouchPanning = false;
+        this._wasPinching = false;
+        this._pinchStartDist = 0;
+        this._touchPendingScale = 0;
+        this._touchPendingScroll = null;
+        if (this._touchRafId) {
+            cancelAnimationFrame(this._touchRafId);
+            this._touchRafId = 0;
         }
     }
     appDblclickFn(evt) {
@@ -9927,12 +9982,14 @@ class MindMap {
             num = 300;
         }
         this.mindScale = num;
+        // translate3d(0,0,0) forces GPU compositing on iOS — eliminates jank
+        var scaleVal = this.mindScale / 100;
         if (this.scalePointer.length) {
             this.appEl.style.transformOrigin = `${this.scalePointer[0]}px ${this.scalePointer[1]}px`;
-            this.appEl.style.transform = "scale(" + this.mindScale / 100 + ")";
+            this.appEl.style.transform = `scale(${scaleVal}) translate3d(0,0,0)`;
         }
         else {
-            this.appEl.style.transform = "scale(" + this.mindScale / 100 + ")";
+            this.appEl.style.transform = `scale(${scaleVal}) translate3d(0,0,0)`;
         }
         // Keep menu and fold dots at constant visual size regardless of zoom
         // Target size: as if zoom is 120%
