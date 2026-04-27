@@ -2558,13 +2558,17 @@ export default class MindMap {
     getMarkdown() {
         var md = '';
         var level = this.setting.headLevel;
+        // Only emit fold-state ^id markers when persistence is set to 'markdown'.
+        // 'plugin-data' and 'none' modes keep markdown clean.
+        var emitFoldIds = (this.setting as any).foldStatePersistence !== 'plugin-data'
+            && (this.setting as any).foldStatePersistence !== 'none';
         this.traverseDF((n: INode) => {
             var l = n.getLevel() + 1;
             var hPrefix = '', space = '';
             if (l > 1) {
                 hPrefix = '\n';
             }
-            const ending = n.isExpand ? '' : ` ^${n.getId()}`
+            const ending = (n.isExpand || !emitFoldIds) ? '' : ` ^${n.getId()}`
             if (n.getLevel() < level) {
                 for (let i = 0; i < l; i++) {
                     hPrefix += '#';

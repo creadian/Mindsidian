@@ -9895,13 +9895,17 @@ class MindMap {
     getMarkdown() {
         var md = '';
         var level = this.setting.headLevel;
+        // Only emit fold-state ^id markers when persistence is set to 'markdown'.
+        // 'plugin-data' and 'none' modes keep markdown clean.
+        var emitFoldIds = this.setting.foldStatePersistence !== 'plugin-data'
+            && this.setting.foldStatePersistence !== 'none';
         this.traverseDF((n) => {
             var l = n.getLevel() + 1;
             var hPrefix = '', space = '';
             if (l > 1) {
                 hPrefix = '\n';
             }
-            const ending = n.isExpand ? '' : ` ^${n.getId()}`;
+            const ending = (n.isExpand || !emitFoldIds) ? '' : ` ^${n.getId()}`;
             if (n.getLevel() < level) {
                 for (let i = 0; i < l; i++) {
                     hPrefix += '#';
@@ -38863,9 +38867,55 @@ class MindMapView extends obsidian.TextFileView {
         }
         return new Blob([u8arr], { type: mime });
     }
+    // Build a structural text-path key like "Root > Section A > Item 3"
+    // for each node. Used in plugin-data fold mode (IDs aren't stable when
+    // ^id markers are absent from the markdown).
+    nodeTextPath(parts) {
+        return parts.join(' > ');
+    }
+    // Walk an INodeData tree and set expanded:false on any node whose
+    // text-path matches one of `savedPaths`. Mutates mindData in place.
+    applyCollapsedPaths(mindData, savedPaths) {
+        var pathSet = new Set(savedPaths);
+        var visit = (node, parents) => {
+            var path = this.nodeTextPath([...parents, (node.text || '').trim()]);
+            if (pathSet.has(path)) {
+                node.expanded = false;
+            }
+            if (node.children && node.children.length) {
+                node.children.forEach((c) => visit(c, [...parents, (node.text || '').trim()]));
+            }
+        };
+        visit(mindData, []);
+    }
+    // Walk the live mindmap and collect text-paths of every collapsed node.
+    collectCollapsedPaths() {
+        var out = [];
+        if (!this.mindmap)
+            return out;
+        var visit = (node, parents) => {
+            var _a;
+            var path = this.nodeTextPath([...parents, (((_a = node.data) === null || _a === void 0 ? void 0 : _a.text) || '').trim()]);
+            if (!node.isExpand && node.children && node.children.length) {
+                out.push(path);
+            }
+            if (node.children) {
+                node.children.forEach((c) => { var _a; return visit(c, [...parents, (((_a = node.data) === null || _a === void 0 ? void 0 : _a.text) || '').trim()]); });
+            }
+        };
+        visit(this.mindmap.root, []);
+        return out;
+    }
     mindMapChange() {
         if (this.mindmap) {
             var md = this.mindmap.getMarkdown();
+            // Plugin-data fold mode: persist collapsed paths to plugin data
+            // (debounced via the existing requestSave path; we save immediately
+            // here since plugin data writes are cheap).
+            if (this.plugin.settings.foldStatePersistence === 'plugin-data' && this.file) {
+                var paths = this.collectCollapsedPaths();
+                this.plugin.setCollapsedPathsForFile(this.file.path, paths);
+            }
             //  var matchArray: string[] = []
             // var collapsedIds: string[] = []
             // const idRegexMultiline = /.+ \^([a-z0-9\-]+)$/gim
@@ -38961,6 +39011,14 @@ class MindMapView extends obsidian.TextFileView {
         var mdText = this.getMdText(this.data);
         var mindData = this.mdToData(mdText);
         mindData.isRoot = true;
+        // If fold-state is persisted in plugin-data, apply saved collapsed
+        // paths to the parsed tree before the mindmap initializes.
+        if (this.plugin.settings.foldStatePersistence === 'plugin-data' && this.file) {
+            var savedPaths = this.plugin.getCollapsedPathsForFile(this.file.path);
+            if (savedPaths.length > 0) {
+                this.applyCollapsedPaths(mindData, savedPaths);
+            }
+        }
         // const frontmatterContentRegExResult = /^---$(.+?)^---$.+?/mis.exec(data)
         // if (frontmatterContentRegExResult != null && frontmatterContentRegExResult[1]) {
         //   frontmatterContentRegExResult[1].split('\n').forEach((frontmatterLine) => {
@@ -39394,6 +39452,21 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
             .addToggle((toggle) => toggle
             .setValue(this.plugin.settings.focusOnMove).onChange((value) => {
             this.plugin.settings.focusOnMove = value;
+            this.plugin.saveData(this.plugin.settings);
+        }));
+        new obsidian.Setting(containerEl)
+            .setName('Fold state persistence')
+            .setDesc('How to remember which branches you collapsed across reloads. ' +
+            'Markdown: writes "^id" markers in the file (portable but pollutes content). ' +
+            'Plugin data: stored separately, keeps your markdown clean. ' +
+            'Don\'t persist: every reload starts fully expanded.')
+            .addDropdown(dropDown => dropDown
+            .addOption('markdown', 'In the markdown file (^id markers)')
+            .addOption('plugin-data', 'In plugin data (clean markdown)')
+            .addOption('none', 'Don\'t persist')
+            .setValue(this.plugin.settings.foldStatePersistence || 'markdown')
+            .onChange((value) => {
+            this.plugin.settings.foldStatePersistence = value;
             this.plugin.saveData(this.plugin.settings);
         }));
     }
@@ -40714,12 +40787,41 @@ class MindMapPlugin extends obsidian.Plugin {
                 fontSize: 16,
                 background: 'transparent',
                 layout: 'mindmap',
-                layoutDirect: 'mindmap'
+                layoutDirect: 'mindmap',
+                foldStatePersistence: 'markdown',
+                foldStateByFile: {},
             }, yield this.loadData());
+            if (!this.settings.foldStateByFile) {
+                this.settings.foldStateByFile = {};
+            }
         });
     }
     saveSettings() {
         return __awaiter(this, void 0, void 0, function* () {
+            yield this.saveData(this.settings);
+        });
+    }
+    // Fold state persistence in plugin-data mode.
+    // Keys are file paths; values are arrays of text-paths like
+    // ["Root > Section A > Item 3", "Root > Section B"]
+    // identifying collapsed nodes structurally (survives most edits).
+    getCollapsedPathsForFile(filePath) {
+        if (!filePath)
+            return [];
+        return (this.settings.foldStateByFile && this.settings.foldStateByFile[filePath]) || [];
+    }
+    setCollapsedPathsForFile(filePath, paths) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!filePath)
+                return;
+            if (!this.settings.foldStateByFile)
+                this.settings.foldStateByFile = {};
+            if (paths.length === 0) {
+                delete this.settings.foldStateByFile[filePath];
+            }
+            else {
+                this.settings.foldStateByFile[filePath] = paths;
+            }
             yield this.saveData(this.settings);
         });
     }

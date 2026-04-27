@@ -181,8 +181,23 @@ export class MindMapSettingsTab extends PluginSettingTab {
                 }),
             );
 
-
-
-
+        new Setting(containerEl)
+            .setName('Fold state persistence')
+            .setDesc(
+                'How to remember which branches you collapsed across reloads. ' +
+                'Markdown: writes "^id" markers in the file (portable but pollutes content). ' +
+                'Plugin data: stored separately, keeps your markdown clean. ' +
+                'Don\'t persist: every reload starts fully expanded.',
+            )
+            .addDropdown(dropDown =>
+                dropDown
+                    .addOption('markdown', 'In the markdown file (^id markers)')
+                    .addOption('plugin-data', 'In plugin data (clean markdown)')
+                    .addOption('none', 'Don\'t persist')
+                    .setValue(this.plugin.settings.foldStatePersistence || 'markdown')
+                    .onChange((value: string) => {
+                        this.plugin.settings.foldStatePersistence = value as ('markdown' | 'plugin-data' | 'none');
+                        this.plugin.saveData(this.plugin.settings);
+                    }));
     }
 }

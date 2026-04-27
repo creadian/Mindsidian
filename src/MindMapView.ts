@@ -286,9 +286,58 @@ export class MindMapView extends TextFileView implements HoverParent {
     return new Blob([u8arr], { type: mime });
   }
 
+  // Build a structural text-path key like "Root > Section A > Item 3"
+  // for each node. Used in plugin-data fold mode (IDs aren't stable when
+  // ^id markers are absent from the markdown).
+  private nodeTextPath(parts: string[]): string {
+    return parts.join(' > ');
+  }
+
+  // Walk an INodeData tree and set expanded:false on any node whose
+  // text-path matches one of `savedPaths`. Mutates mindData in place.
+  applyCollapsedPaths(mindData: INodeData, savedPaths: string[]) {
+    var pathSet = new Set(savedPaths);
+    var visit = (node: any, parents: string[]) => {
+      var path = this.nodeTextPath([...parents, (node.text || '').trim()]);
+      if (pathSet.has(path)) {
+        node.expanded = false;
+      }
+      if (node.children && node.children.length) {
+        node.children.forEach((c: any) => visit(c, [...parents, (node.text || '').trim()]));
+      }
+    };
+    visit(mindData, []);
+  }
+
+  // Walk the live mindmap and collect text-paths of every collapsed node.
+  collectCollapsedPaths(): string[] {
+    var out: string[] = [];
+    if (!this.mindmap) return out;
+    var visit = (node: any, parents: string[]) => {
+      var path = this.nodeTextPath([...parents, (node.data?.text || '').trim()]);
+      if (!node.isExpand && node.children && node.children.length) {
+        out.push(path);
+      }
+      if (node.children) {
+        node.children.forEach((c: any) => visit(c, [...parents, (node.data?.text || '').trim()]));
+      }
+    };
+    visit(this.mindmap.root, []);
+    return out;
+  }
+
   mindMapChange() {
     if (this.mindmap) {
       var md = this.mindmap.getMarkdown();
+
+      // Plugin-data fold mode: persist collapsed paths to plugin data
+      // (debounced via the existing requestSave path; we save immediately
+      // here since plugin data writes are cheap).
+      if (this.plugin.settings.foldStatePersistence === 'plugin-data' && this.file) {
+        var paths = this.collectCollapsedPaths();
+        this.plugin.setCollapsedPathsForFile(this.file.path, paths);
+      }
+
     //  var matchArray: string[] = []
       // var collapsedIds: string[] = []
       // const idRegexMultiline = /.+ \^([a-z0-9\-]+)$/gim
@@ -392,6 +441,15 @@ export class MindMapView extends TextFileView implements HoverParent {
     var mdText = this.getMdText(this.data);
     var mindData = this.mdToData(mdText);
     mindData.isRoot = true;
+
+    // If fold-state is persisted in plugin-data, apply saved collapsed
+    // paths to the parsed tree before the mindmap initializes.
+    if (this.plugin.settings.foldStatePersistence === 'plugin-data' && this.file) {
+      var savedPaths = this.plugin.getCollapsedPathsForFile(this.file.path);
+      if (savedPaths.length > 0) {
+        this.applyCollapsedPaths(mindData, savedPaths);
+      }
+    }
 
     // const frontmatterContentRegExResult = /^---$(.+?)^---$.+?/mis.exec(data)
 

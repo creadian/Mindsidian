@@ -1357,11 +1357,36 @@ export default class MindMapPlugin extends Plugin {
       fontSize: 16,
       background: 'transparent',
       layout: 'mindmap',
-      layoutDirect: 'mindmap'
+      layoutDirect: 'mindmap',
+      foldStatePersistence: 'markdown',
+      foldStateByFile: {},
     }, await this.loadData());
+    if (!this.settings.foldStateByFile) {
+      this.settings.foldStateByFile = {};
+    }
   }
 
   async saveSettings() {
+    await this.saveData(this.settings);
+  }
+
+  // Fold state persistence in plugin-data mode.
+  // Keys are file paths; values are arrays of text-paths like
+  // ["Root > Section A > Item 3", "Root > Section B"]
+  // identifying collapsed nodes structurally (survives most edits).
+  getCollapsedPathsForFile(filePath: string): string[] {
+    if (!filePath) return [];
+    return (this.settings.foldStateByFile && this.settings.foldStateByFile[filePath]) || [];
+  }
+
+  async setCollapsedPathsForFile(filePath: string, paths: string[]) {
+    if (!filePath) return;
+    if (!this.settings.foldStateByFile) this.settings.foldStateByFile = {};
+    if (paths.length === 0) {
+      delete this.settings.foldStateByFile[filePath];
+    } else {
+      this.settings.foldStateByFile[filePath] = paths;
+    }
     await this.saveData(this.settings);
   }
 
