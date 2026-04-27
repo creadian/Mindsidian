@@ -1138,7 +1138,6 @@ export default class MindMapPlugin extends Plugin {
         if(checking) return true;
         var mindmap = mindmapView.mindmap;
         mindmap.scale(100);
-        new Notice('100%');
         return true;
       }
     });

@@ -58,7 +58,6 @@ export default class MindMap {
     exec: Exec;
     scalePointer: number[] = [];
     mindScale = 100;
-    timeOut: any = null;
     _indicateDom:HTMLElement;
     _menuDom:HTMLElement;
     _dragType:string='';
@@ -2059,7 +2058,6 @@ export default class MindMap {
         this.containerEL.scrollTop += evt.deltaY;
     }
 
-    _scrollScaleTimeout: any = null;
     _lastScrollDir: number = 0;
     _scrollAccum: number = 0;
 
@@ -2105,14 +2103,6 @@ export default class MindMap {
             this.mindScale = Math.max(20, this.mindScale - steps);
         }
         this.scale(this.mindScale);
-
-        // Debounced notice so it doesn't spam
-        if (this._scrollScaleTimeout) {
-            clearTimeout(this._scrollScaleTimeout);
-        }
-        this._scrollScaleTimeout = setTimeout(() => {
-            new Notice(`${this.mindScale} %`);
-        }, 400);
     }
 
     clearNode() {
@@ -2651,14 +2641,6 @@ export default class MindMap {
             var n = this.mindScale - 10;
         }
         this.scale(n);
-
-        if (this.timeOut) {
-            clearTimeout(this.timeOut)
-        }
-
-        this.timeOut = setTimeout(() => {
-            new Notice(`${n} %`);
-        }, 600);
     }
 
     copyNode(node?:any){

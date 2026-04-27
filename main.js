@@ -7913,7 +7913,6 @@ class MindMap {
         this.colors = [];
         this.scalePointer = [];
         this.mindScale = 100;
-        this.timeOut = null;
         this._dragType = '';
         this.isComposing = false;
         this.isFocused = true;
@@ -7932,7 +7931,6 @@ class MindMap {
         this._pinchMidY = 0;
         this._longPressTimer = null;
         this._isTouchZooming = false;
-        this._scrollScaleTimeout = null;
         this._lastScrollDir = 0;
         this._scrollAccum = 0;
         this.setting = Object.assign({
@@ -9537,13 +9535,6 @@ class MindMap {
             this.mindScale = Math.max(20, this.mindScale - steps);
         }
         this.scale(this.mindScale);
-        // Debounced notice so it doesn't spam
-        if (this._scrollScaleTimeout) {
-            clearTimeout(this._scrollScaleTimeout);
-        }
-        this._scrollScaleTimeout = setTimeout(() => {
-            new obsidian.Notice(`${this.mindScale} %`);
-        }, 400);
     }
     clearNode() {
         var _a;
@@ -9989,12 +9980,6 @@ class MindMap {
             var n = this.mindScale - 10;
         }
         this.scale(n);
-        if (this.timeOut) {
-            clearTimeout(this.timeOut);
-        }
-        this.timeOut = setTimeout(() => {
-            new obsidian.Notice(`${n} %`);
-        }, 600);
     }
     copyNode(node) {
         var n = node || this.selectNode;
@@ -40498,7 +40483,6 @@ class MindMapPlugin extends obsidian.Plugin {
                         return true;
                     var mindmap = mindmapView.mindmap;
                     mindmap.scale(100);
-                    new obsidian.Notice('100%');
                     return true;
                 }
             });
