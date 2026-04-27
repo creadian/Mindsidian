@@ -357,15 +357,16 @@ export class MindMapView extends TextFileView implements HoverParent {
 
 
   async onClose() {
-    // Remove draggables from render, as the DOM has already detached
-    //this.plugin.removeView(this);
+    // Reset zoom/touch state before clearing — guards against state leaking
+    // into the next instance if the same file is reopened (Cmd+W bug).
     if (this.mindmap) {
+      this.mindmap.mindScale = 100;
+      this.mindmap.scalePointer = [];
+      this.mindmap._isTouchZooming = false;
       this.mindmap.clear();
-      this.contentEl.innerHTML = '';
+      this.contentEl.empty();
       this.mindmap = null;
     }
-
-
   }
 
   clear() {
@@ -379,8 +380,11 @@ export class MindMapView extends TextFileView implements HoverParent {
   setViewData(data: string) {
 
     if (this.mindmap) {
+      this.mindmap.mindScale = 100;
+      this.mindmap.scalePointer = [];
+      this.mindmap._isTouchZooming = false;
       this.mindmap.clear();
-      this.contentEl.innerHTML = '';
+      this.contentEl.empty();
     }
 
     this.data = data;
@@ -452,14 +456,15 @@ export class MindMapView extends TextFileView implements HoverParent {
     this.app.workspace.offref("resize");
 
     if (this.mindmap) {
+      this.mindmap.mindScale = 100;
+      this.mindmap.scalePointer = [];
+      this.mindmap._isTouchZooming = false;
       this.mindmap.clear();
-      this.contentEl.innerHTML = '';
+      this.contentEl.empty();
       this.mindmap = null;
     }
 
     this.plugin.setMarkdownView(this.leaf);
-
-
   }
 
   onload() {

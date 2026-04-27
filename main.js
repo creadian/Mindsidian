@@ -7944,6 +7944,14 @@ class MindMap {
             headLevel: 2,
             layoutDirect: ''
         }, setting || {});
+        // Defensive resets — guard against stale state surviving across
+        // close+reopen of the same file (Cmd+W bug). All zoom/touch state
+        // must start fresh per instance.
+        this.mindScale = 100;
+        this.scalePointer = [];
+        this._isTouchZooming = false;
+        this._pinchStartDist = 0;
+        this._pinchStartScale = 100;
         this.data = data;
         this.appEl = document.createElement('div');
         this.appEl.classList.add('mm-mindmap');
@@ -38924,11 +38932,14 @@ class MindMapView extends obsidian.TextFileView {
     }
     onClose() {
         return __awaiter(this, void 0, void 0, function* () {
-            // Remove draggables from render, as the DOM has already detached
-            //this.plugin.removeView(this);
+            // Reset zoom/touch state before clearing — guards against state leaking
+            // into the next instance if the same file is reopened (Cmd+W bug).
             if (this.mindmap) {
+                this.mindmap.mindScale = 100;
+                this.mindmap.scalePointer = [];
+                this.mindmap._isTouchZooming = false;
                 this.mindmap.clear();
-                this.contentEl.innerHTML = '';
+                this.contentEl.empty();
                 this.mindmap = null;
             }
         });
@@ -38940,8 +38951,11 @@ class MindMapView extends obsidian.TextFileView {
     }
     setViewData(data) {
         if (this.mindmap) {
+            this.mindmap.mindScale = 100;
+            this.mindmap.scalePointer = [];
+            this.mindmap._isTouchZooming = false;
             this.mindmap.clear();
-            this.contentEl.innerHTML = '';
+            this.contentEl.empty();
         }
         this.data = data;
         var mdText = this.getMdText(this.data);
@@ -39003,8 +39017,11 @@ class MindMapView extends obsidian.TextFileView {
         this.app.workspace.offref("quick-preview");
         this.app.workspace.offref("resize");
         if (this.mindmap) {
+            this.mindmap.mindScale = 100;
+            this.mindmap.scalePointer = [];
+            this.mindmap._isTouchZooming = false;
             this.mindmap.clear();
-            this.contentEl.innerHTML = '';
+            this.contentEl.empty();
             this.mindmap = null;
         }
         this.plugin.setMarkdownView(this.leaf);

@@ -81,6 +81,15 @@ export default class MindMap {
         }, setting || {});
 
 
+        // Defensive resets — guard against stale state surviving across
+        // close+reopen of the same file (Cmd+W bug). All zoom/touch state
+        // must start fresh per instance.
+        this.mindScale = 100;
+        this.scalePointer = [];
+        this._isTouchZooming = false;
+        this._pinchStartDist = 0;
+        this._pinchStartScale = 100;
+
         this.data = data;
         this.appEl = document.createElement('div');
 
