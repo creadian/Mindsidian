@@ -1907,23 +1907,28 @@ export default class MindMap {
 
     // --- Mobile touch handlers ---
     // Panning: 100% native iOS scrolling (smooth, 120Hz, hardware-accelerated).
-    // We only intercept: (1) two-finger pinch for zoom, (2) long-press for node editing.
-    //
-    // Zoom: fixed transformOrigin at 0,0. At pinch start, compute the content
-    // coordinate under the finger midpoint (doesn't change during gesture).
-    // Each frame: scrollLeft = contentX * newScale - fingerMidX
+    // Edit mode: manual double-tap detector (in appTouchStart) — more reliable
+    //   than relying on iOS's synthesized dblclick which gets suppressed when
+    //   touch listeners are non-passive.
+    // Long-press (500ms hold): drag-to-reparent.
+    // Pinch zoom: anchor transformOrigin to the finger midpoint at gesture start
+    //   and keep it there for the whole gesture. Scale changes during the pinch
+    //   automatically keep the focal point under the fingers (no scroll math
+    //   needed during the gesture). Avoids both the diagonal-drift and the
+    //   high-zoom drift bugs.
     _pinchStartDist: number = 0;
     _pinchStartScale: number = 100;
-    _pinchContentX: number = 0;
-    _pinchContentY: number = 0;
-    _pinchMidX: number = 0;
-    _pinchMidY: number = 0;
     _longPressTimer: any = null;
     _isTouchZooming: boolean = false;
     // Long-press drag-to-reparent state (mobile only)
     _isLongPressDragging: boolean = false;
     _dragLastClientX: number = 0;
     _dragLastClientY: number = 0;
+    _dragStartClientX: number = 0;
+    _dragStartClientY: number = 0;
+    // Manual double-tap detector
+    _lastTapTime: number = 0;
+    _lastTapNodeId: string = '';
 
     _getTouchDist(touches: TouchList): number {
         var dx = touches[0].pageX - touches[1].pageX;
@@ -1938,31 +1943,43 @@ export default class MindMap {
             this._pinchStartDist = this._getTouchDist(evt.touches);
             this._pinchStartScale = this.mindScale;
 
-            // Finger midpoint relative to container viewport
+            // Finger midpoint relative to containerEL (viewport)
             var containerRect = this.containerEL.getBoundingClientRect();
-            this._pinchMidX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2 - containerRect.left;
-            this._pinchMidY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2 - containerRect.top;
+            var midX = (evt.touches[0].clientX + evt.touches[1].clientX) / 2 - containerRect.left;
+            var midY = (evt.touches[0].clientY + evt.touches[1].clientY) / 2 - containerRect.top;
 
-            // Normalize transformOrigin to 0,0 before computing content coords.
-            // Other operations (center, centerOnNode, desktop zoom) may have set
-            // scalePointer to a non-zero value. With origin (ox,oy) at scale s,
-            // point x renders at: x*s + ox*(1-s). Changing to origin 0: x*s.
-            // To keep viewport stable: scrollLeft += ox * (s - 1)
-            var currentScaleFrac = this.mindScale / 100;
-            if (this.scalePointer.length && currentScaleFrac !== 1) {
-                var ox = this.scalePointer[0];
-                var oy = this.scalePointer[1];
-                this.containerEL.scrollLeft += ox * (currentScaleFrac - 1);
-                this.containerEL.scrollTop += oy * (currentScaleFrac - 1);
-            }
-            this.scalePointer = [];
-            this.appEl.style.transformOrigin = '0px 0px';
-            this.appEl.style.transform = `scale(${currentScaleFrac}) translate3d(0,0,0)`;
+            // Anchor the transform origin to the element point under the finger
+            // midpoint. While the gesture is active, scale changes naturally
+            // keep that point fixed at the finger midpoint — no scroll math
+            // needed during the pinch. This avoids both the diagonal drift
+            // (caused by amplified scroll formulas) and the high-zoom drift
+            // (caused by layout-bounded scroll being unable to follow large
+            // scrolllLeft targets at high scale).
+            var s = this.mindScale / 100;
+            var ox = this.scalePointer.length ? this.scalePointer[0] : 0;
+            var oy = this.scalePointer.length ? this.scalePointer[1] : 0;
+            var scrollL = this.containerEL.scrollLeft;
+            var scrollT = this.containerEL.scrollTop;
 
-            // NOW compute the content coordinate under the finger midpoint.
-            // With origin 0,0: x = (scrollLeft + midX) / scale
-            this._pinchContentX = (this.containerEL.scrollLeft + this._pinchMidX) / currentScaleFrac;
-            this._pinchContentY = (this.containerEL.scrollTop + this._pinchMidY) / currentScaleFrac;
+            // The element coord currently under the finger midpoint.
+            // Inverting visible_x = ex*s + ox*(1-s) - scrollLeft = midX:
+            var focalEx = (midX + scrollL - ox * (1 - s)) / s;
+            var focalEy = (midY + scrollT - oy * (1 - s)) / s;
+
+            // Move transformOrigin to focalE without visually shifting anything.
+            // After: visible_x = ex*s + focalEx*(1-s) - newScrollLeft. For the
+            // focal point ex=focalEx to stay at midX:
+            //   focalEx*s + focalEx*(1-s) - newScrollLeft = midX
+            //   focalEx - newScrollLeft = midX
+            //   newScrollLeft = focalEx - midX
+            var newScrollL = focalEx - midX;
+            var newScrollT = focalEy - midY;
+
+            this.scalePointer = [focalEx, focalEy];
+            this.appEl.style.transformOrigin = `${focalEx}px ${focalEy}px`;
+            this.appEl.style.transform = `scale(${s}) translate3d(0,0,0)`;
+            this.containerEL.scrollLeft = newScrollL;
+            this.containerEL.scrollTop = newScrollT;
 
             this._menuDom.style.display = 'none';
             return;
@@ -1971,25 +1988,53 @@ export default class MindMap {
         if (evt.touches.length === 1) {
             var targetEl = evt.target as HTMLElement;
 
-            // Long-press to start drag-to-reparent (500ms).
-            // (Edit mode on mobile is triggered by double-tap instead.)
-            if (targetEl.closest('.mm-node') && !targetEl.hasClass('mm-node-bar')) {
-                var id = targetEl.closest('.mm-node').getAttribute('data-id');
-                var node = this.getNodeById(id);
-                // Record finger position so the move-handler knows where to look
+            // Manual double-tap detector — robust on iOS where synthetic
+            // dblclick is unreliable when non-passive touch listeners exist.
+            // Tap-on-same-node within 350ms = edit.
+            var nodeAncestor = targetEl.closest('.mm-node') as HTMLElement | null;
+            if (nodeAncestor && !targetEl.hasClass('mm-node-bar')) {
+                var nodeId = nodeAncestor.getAttribute('data-id');
+                var now = Date.now();
+                if (this._lastTapNodeId === nodeId && now - this._lastTapTime < 350) {
+                    // Double-tap detected — enter edit mode
+                    var dblNode = this.getNodeById(nodeId);
+                    if (dblNode && !this.editNode) {
+                        if (this.selectNode && this.selectNode !== dblNode) {
+                            this.clearSelectNode();
+                        }
+                        this.selectNode = dblNode;
+                        dblNode.edit();
+                        this.editNode = dblNode;
+                        this._menuDom.style.display = 'none';
+                    }
+                    // Reset so a third tap doesn't immediately re-edit
+                    this._lastTapTime = 0;
+                    this._lastTapNodeId = '';
+                    return;
+                }
+                this._lastTapTime = now;
+                this._lastTapNodeId = nodeId;
+            } else {
+                this._lastTapTime = 0;
+                this._lastTapNodeId = '';
+            }
+
+            // Long-press (500ms hold) on a node = drag-to-reparent.
+            if (nodeAncestor && !targetEl.hasClass('mm-node-bar')) {
+                var holdNode = this.getNodeById(nodeAncestor.getAttribute('data-id'));
+                this._dragStartClientX = evt.touches[0].clientX;
+                this._dragStartClientY = evt.touches[0].clientY;
                 this._dragLastClientX = evt.touches[0].clientX;
                 this._dragLastClientY = evt.touches[0].clientY;
                 this._longPressTimer = setTimeout(() => {
-                    if (node && !this.editNode && !node.data.isRoot) {
-                        // Begin drag — node lifts visually and follows the finger.
-                        this._dragNode = node;
+                    if (holdNode && !this.editNode && !holdNode.data.isRoot) {
+                        this._dragNode = holdNode;
                         this.drag = true;
                         this._isLongPressDragging = true;
-                        node.contentEl.classList.add('mm-node-dragging');
+                        holdNode.contentEl.classList.add('mm-node-dragging');
                         this._menuDom.style.display = 'none';
-                        // Haptic cue (where supported)
                         if ((navigator as any).vibrate) (navigator as any).vibrate(20);
-                        // Disable native panning so the drag finger doesn't scroll the canvas
+                        // Disable native panning so the drag finger doesn't scroll
                         this.appEl.style.touchAction = 'none';
                         this.containerEL.style.touchAction = 'none';
                     }
@@ -2007,12 +2052,23 @@ export default class MindMap {
         }
 
         // Drag-to-reparent in progress: track finger, position drop indicator,
+        // visually translate the dragged node so the user can see it follow,
         // and auto-pan if near the viewport edge.
         if (this._isLongPressDragging && evt.touches.length === 1 && this._dragNode) {
             evt.preventDefault();
             var t = evt.touches[0];
             this._dragLastClientX = t.clientX;
             this._dragLastClientY = t.clientY;
+
+            // Make the dragged node visually follow the finger.
+            // Translate by the finger delta from drag start. The node's
+            // layout position stays the same — only the visual paint shifts.
+            // Divide by the current zoom so the visual delta matches the
+            // finger movement (the parent appEl is scaled).
+            var s = this.mindScale / 100;
+            var dx = (t.clientX - this._dragStartClientX) / s;
+            var dy = (t.clientY - this._dragStartClientY) / s;
+            this._dragNode.contentEl.style.transform = `translate(${dx}px, ${dy}px)`;
 
             // Find the node under the finger (skip the dragged node and its descendants).
             var hitEl = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
@@ -2073,28 +2129,17 @@ export default class MindMap {
             return;
         }
 
+        // Pinch zoom: only update scale. Origin was anchored to the finger
+        // midpoint at gesture start, so the focal point stays put for free —
+        // no scroll changes during the gesture.
         if (evt.touches.length === 2 && this._isTouchZooming) {
             evt.preventDefault();
             var dist = this._getTouchDist(evt.touches);
             var ratio = dist / this._pinchStartDist;
             var newScale = this._pinchStartScale * ratio;
             newScale = Math.max(20, Math.min(300, newScale));
-            var newScaleFrac = newScale / 100;
-
-            // Set scale with fixed origin at 0,0
             this.mindScale = newScale;
-            this.appEl.style.transform = `scale(${newScaleFrac}) translate3d(0,0,0)`;
-
-            // Scroll so the content point stays under the fingers:
-            // contentX * newScale = scrollLeft + midX
-            // Clamp to valid scroll range — at extreme zoom the canvas may be
-            // smaller than the viewport, and the browser clamps scrollLeft to 0.
-            var targetScrollLeft = this._pinchContentX * newScaleFrac - this._pinchMidX;
-            var targetScrollTop = this._pinchContentY * newScaleFrac - this._pinchMidY;
-            var maxScrollLeft = this.appEl.scrollWidth * newScaleFrac - this.containerEL.clientWidth;
-            var maxScrollTop = this.appEl.scrollHeight * newScaleFrac - this.containerEL.clientHeight;
-            this.containerEL.scrollLeft = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft));
-            this.containerEL.scrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
+            this.appEl.style.transform = `scale(${newScale / 100}) translate3d(0,0,0)`;
             return;
         }
     }
@@ -2107,21 +2152,29 @@ export default class MindMap {
 
         // Drop the dragged node if a long-press drag was in progress.
         if (this._isLongPressDragging && this._dragNode) {
+            // Hide the node before hit-testing so elementFromPoint sees through it.
+            // (Otherwise the dragged node is on top and we'd "drop on ourselves".)
+            var dragNode = this._dragNode;
+            if (dragNode.contentEl) dragNode.contentEl.style.visibility = 'hidden';
             var hitEl = document.elementFromPoint(this._dragLastClientX, this._dragLastClientY) as HTMLElement | null;
+            if (dragNode.contentEl) dragNode.contentEl.style.visibility = '';
             var nodeEl = hitEl ? hitEl.closest('.mm-node') as HTMLElement | null : null;
             var dropNode: INode = null;
             if (nodeEl) {
                 var dropId = nodeEl.getAttribute('data-id');
-                if (dropId && dropId !== this._dragNode.getId()) {
+                if (dropId && dropId !== dragNode.getId()) {
                     dropNode = this.getNodeById(dropId);
                 }
             }
             if (dropNode && this._dragType) {
-                this.moveNode(this._dragNode, dropNode, this._dragType);
+                this.moveNode(dragNode, dropNode, this._dragType);
             }
-            // Clean up
-            if (this._dragNode.contentEl) {
-                this._dragNode.contentEl.classList.remove('mm-node-dragging');
+            // Clean up — clear the visual translate transform first so the
+            // node snaps back to its layout position before being repainted
+            // (or, if reparented, repainted at its new layout position).
+            if (dragNode.contentEl) {
+                dragNode.contentEl.style.transform = '';
+                dragNode.contentEl.classList.remove('mm-node-dragging');
             }
             this._indicateDom.style.display = 'none';
             this._isLongPressDragging = false;
@@ -2147,6 +2200,7 @@ export default class MindMap {
         // Cancel any in-progress drag without applying the move.
         if (this._isLongPressDragging) {
             if (this._dragNode && this._dragNode.contentEl) {
+                this._dragNode.contentEl.style.transform = '';
                 this._dragNode.contentEl.classList.remove('mm-node-dragging');
             }
             this._indicateDom.style.display = 'none';
