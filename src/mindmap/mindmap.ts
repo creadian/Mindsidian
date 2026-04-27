@@ -1920,6 +1920,10 @@ export default class MindMap {
     _pinchMidY: number = 0;
     _longPressTimer: any = null;
     _isTouchZooming: boolean = false;
+    // Long-press drag-to-reparent state (mobile only)
+    _isLongPressDragging: boolean = false;
+    _dragLastClientX: number = 0;
+    _dragLastClientY: number = 0;
 
     _getTouchDist(touches: TouchList): number {
         var dx = touches[0].pageX - touches[1].pageX;
@@ -1967,15 +1971,27 @@ export default class MindMap {
         if (evt.touches.length === 1) {
             var targetEl = evt.target as HTMLElement;
 
-            // Long-press to edit a node (500ms)
+            // Long-press to start drag-to-reparent (500ms).
+            // (Edit mode on mobile is triggered by double-tap instead.)
             if (targetEl.closest('.mm-node') && !targetEl.hasClass('mm-node-bar')) {
                 var id = targetEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
+                // Record finger position so the move-handler knows where to look
+                this._dragLastClientX = evt.touches[0].clientX;
+                this._dragLastClientY = evt.touches[0].clientY;
                 this._longPressTimer = setTimeout(() => {
-                    if (node && !this.editNode) {
-                        node.edit();
-                        this.editNode = node;
+                    if (node && !this.editNode && !node.data.isRoot) {
+                        // Begin drag — node lifts visually and follows the finger.
+                        this._dragNode = node;
+                        this.drag = true;
+                        this._isLongPressDragging = true;
+                        node.contentEl.classList.add('mm-node-dragging');
                         this._menuDom.style.display = 'none';
+                        // Haptic cue (where supported)
+                        if ((navigator as any).vibrate) (navigator as any).vibrate(20);
+                        // Disable native panning so the drag finger doesn't scroll the canvas
+                        this.appEl.style.touchAction = 'none';
+                        this.containerEL.style.touchAction = 'none';
                     }
                 }, 500);
             }
@@ -1983,9 +1999,78 @@ export default class MindMap {
     }
 
     appTouchMove(evt: TouchEvent) {
-        if (this._longPressTimer) {
+        // Cancel pending long-press if the finger has actually moved.
+        // We don't cancel it once the drag has started — finger movement IS the drag.
+        if (this._longPressTimer && !this._isLongPressDragging) {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
+        }
+
+        // Drag-to-reparent in progress: track finger, position drop indicator,
+        // and auto-pan if near the viewport edge.
+        if (this._isLongPressDragging && evt.touches.length === 1 && this._dragNode) {
+            evt.preventDefault();
+            var t = evt.touches[0];
+            this._dragLastClientX = t.clientX;
+            this._dragLastClientY = t.clientY;
+
+            // Find the node under the finger (skip the dragged node and its descendants).
+            var hitEl = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+            var nodeEl = hitEl ? hitEl.closest('.mm-node') as HTMLElement | null : null;
+            var dropNode: INode = null;
+            if (nodeEl) {
+                var dropId = nodeEl.getAttribute('data-id');
+                if (dropId && dropId !== this._dragNode.getId()) {
+                    var candidate = this.getNodeById(dropId);
+                    // Skip if candidate is a descendant of the drag node (would create a cycle)
+                    var p = candidate;
+                    var isDescendant = false;
+                    while (p && p.parent) {
+                        if (p.parent === this._dragNode) { isDescendant = true; break; }
+                        p = p.parent;
+                    }
+                    if (!isDescendant) dropNode = candidate;
+                }
+            }
+
+            if (dropNode) {
+                this._dragType = this._getDragType(dropNode, t.clientX, t.clientY);
+                var box = dropNode.getBox();
+                this._indicateDom.style.display = 'block';
+                this._indicateDom.style.left = box.x + box.width / 2 - 40 / 2 + 'px';
+                this._indicateDom.style.top = box.y - 90 + 'px';
+                this._indicateDom.className = 'mm-node-layout-indicate';
+                if (this._dragType === 'top') {
+                    this._indicateDom.classList.add('mm-arrow-top');
+                } else if (this._dragType === 'down') {
+                    this._indicateDom.classList.add('mm-arrow-down');
+                } else if (this._dragType === 'left') {
+                    this._indicateDom.classList.add('mm-arrow-left');
+                } else if (this._dragType === 'right') {
+                    this._indicateDom.classList.add('mm-arrow-right');
+                } else {
+                    this._indicateDom.classList.add('drag-type');
+                    var arr = this._dragType.split('-');
+                    if (arr[1]) {
+                        this._indicateDom.classList.add('mm-arrow-' + arr[1]);
+                    } else {
+                        this._indicateDom.classList.add('mm-arrow-right');
+                    }
+                }
+            } else {
+                this._indicateDom.style.display = 'none';
+                this._dragType = '';
+            }
+
+            // Auto-pan when the finger nears the viewport edge.
+            var rect = this.containerEL.getBoundingClientRect();
+            var EDGE = 48;
+            var SPEED = 12;
+            if (t.clientX - rect.left < EDGE) this.containerEL.scrollLeft -= SPEED;
+            else if (rect.right - t.clientX < EDGE) this.containerEL.scrollLeft += SPEED;
+            if (t.clientY - rect.top < EDGE) this.containerEL.scrollTop -= SPEED;
+            else if (rect.bottom - t.clientY < EDGE) this.containerEL.scrollTop += SPEED;
+            return;
         }
 
         if (evt.touches.length === 2 && this._isTouchZooming) {
@@ -2019,6 +2104,35 @@ export default class MindMap {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
+
+        // Drop the dragged node if a long-press drag was in progress.
+        if (this._isLongPressDragging && this._dragNode) {
+            var hitEl = document.elementFromPoint(this._dragLastClientX, this._dragLastClientY) as HTMLElement | null;
+            var nodeEl = hitEl ? hitEl.closest('.mm-node') as HTMLElement | null : null;
+            var dropNode: INode = null;
+            if (nodeEl) {
+                var dropId = nodeEl.getAttribute('data-id');
+                if (dropId && dropId !== this._dragNode.getId()) {
+                    dropNode = this.getNodeById(dropId);
+                }
+            }
+            if (dropNode && this._dragType) {
+                this.moveNode(this._dragNode, dropNode, this._dragType);
+            }
+            // Clean up
+            if (this._dragNode.contentEl) {
+                this._dragNode.contentEl.classList.remove('mm-node-dragging');
+            }
+            this._indicateDom.style.display = 'none';
+            this._isLongPressDragging = false;
+            this._dragNode = null;
+            this._dragType = '';
+            this.drag = false;
+            // Restore native panning
+            this.appEl.style.touchAction = 'pan-x pan-y';
+            this.containerEL.style.touchAction = 'pan-x pan-y';
+        }
+
         if (this._isTouchZooming && evt.touches.length < 2) {
             this._isTouchZooming = false;
             this.scale(this.mindScale);
@@ -2029,6 +2143,19 @@ export default class MindMap {
         if (this._longPressTimer) {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
+        }
+        // Cancel any in-progress drag without applying the move.
+        if (this._isLongPressDragging) {
+            if (this._dragNode && this._dragNode.contentEl) {
+                this._dragNode.contentEl.classList.remove('mm-node-dragging');
+            }
+            this._indicateDom.style.display = 'none';
+            this._isLongPressDragging = false;
+            this._dragNode = null;
+            this._dragType = '';
+            this.drag = false;
+            this.appEl.style.touchAction = 'pan-x pan-y';
+            this.containerEL.style.touchAction = 'pan-x pan-y';
         }
         if (this._isTouchZooming) {
             this._isTouchZooming = false;

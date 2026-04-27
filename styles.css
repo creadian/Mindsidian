@@ -41,6 +41,14 @@
   -webkit-font-smoothing: antialiased;
   -webkit-backface-visibility: hidden;
 }
+
+/* Long-press drag-to-reparent (mobile) — node lifts visually */
+.mm-mindmap .mm-node.mm-node-dragging {
+  opacity: 0.75;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+  transition: opacity 0.12s ease, box-shadow 0.12s ease;
+}
 /* Content layer gets its own compositing context */
 .mm-mindmap > div {
   -webkit-backface-visibility: hidden;
