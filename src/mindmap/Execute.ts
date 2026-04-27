@@ -61,8 +61,6 @@ export default class Exec{
                 }
                 break;
             case 'moveNode':
-                console.log("inHistory:");
-                console.log(data.inHistory);
                 if(data.inHistory === undefined || data.inHistory == true) {
                     if(data){
                     this.history.execute(new cmd.MoveNode(data));

@@ -498,7 +498,6 @@ export default class Node {
 
 
     cancelEdit(){
-        console.log("CancelEdit");
         var text = this.contentEl.innerText.trim()||'';
         if(text.length == 0){
             text = this._oldText

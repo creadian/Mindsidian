@@ -31,19 +31,21 @@ export default class MindMapPlugin extends Plugin {
       id: 'Create New MindMap',
       name: `${t('Create new mindmap')}`,
       checkCallback: (checking: boolean) => {
-        let leaf = this.app.workspace.activeLeaf;
-        if (leaf) {
-          if (!checking) {
-            const targetFolder = this.app.fileManager.getNewFileParent(
-              this.app.workspace.getActiveFile()?.path || ""
-            );
-            if (targetFolder) {
-              this.newMindMap(targetFolder);
-            }
-          }
-          return true;
+        // Per Obsidian guidelines, prefer getActiveFile()/getActiveViewOfType()
+        // over the deprecated workspace.activeLeaf direct access.
+        var activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile && !this.app.workspace.getLeaf(false)) {
+          return false;
         }
-        return false;
+        if (!checking) {
+          const targetFolder = this.app.fileManager.getNewFileParent(
+            activeFile?.path || ""
+          );
+          if (targetFolder) {
+            this.newMindMap(targetFolder);
+          }
+        }
+        return true;
       }
     });
 
@@ -1318,10 +1320,9 @@ export default class MindMapPlugin extends Plugin {
   }
 
   onunload() {
-
-    this.app.workspace.detachLeavesOfType(mindmapViewType);
-    //this.app.workspace.unregisterHoverLinkSource(frontMatterKey);
-
+    // Per Obsidian guidelines, do NOT detach leaves on unload — when the user
+    // updates the plugin, open mindmap leaves should re-initialize at their
+    // existing positions. Letting Obsidian handle leaf lifecycle is correct.
   }
 
   async newMindMap(folder?: TFolder) {

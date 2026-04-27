@@ -61,7 +61,7 @@ export class MindMapView extends TextFileView implements HoverParent {
          colors = this.plugin.settings.strokeArray;
       }
     }catch(err){
-       console.log(err,'stroke array is error');
+       console.error('Mindsidian: stroke array parse error', err);
     }
 
     this.colors = this.colors.concat(colors);
@@ -354,9 +354,8 @@ export class MindMapView extends TextFileView implements HoverParent {
      // this.app.vault.adapter.write(this.mindmap.path, this.data);
        try{
         this.requestSave();
-        //new Notice(`${t("Save success")}`);
        }catch(err){
-        console.log(err);
+        console.error('Mindsidian: save failed', err);
         new Notice(`${t("Save fail")}`)
       }
     }

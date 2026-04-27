@@ -806,7 +806,6 @@ class Node$1 {
         //selection.removeAllRanges();
     }
     cancelEdit() {
-        console.log("CancelEdit");
         var text = this.contentEl.innerText.trim() || '';
         if (text.length == 0) {
             text = this._oldText;
@@ -7620,8 +7619,6 @@ class Exec {
                 }
                 break;
             case 'moveNode':
-                console.log("inHistory:");
-                console.log(data.inHistory);
                 if (data.inHistory === undefined || data.inHistory == true) {
                     if (data) {
                         this.history.execute(new MoveNode(data));
@@ -9836,11 +9833,9 @@ class MindMap {
     }
     undo() {
         this.exec.undo();
-        console.log("Undo");
     }
     redo() {
         this.exec.redo();
-        console.log("Redo");
     }
     addNode(node, parent, index = -1) {
         if (parent) {
@@ -10178,7 +10173,7 @@ class MindMap {
                 }
             }
             catch (err) {
-                console.log(err);
+                console.error('Mindsidian: clipboard write failed', err);
             }
         }
     }
@@ -38819,7 +38814,7 @@ class MindMapView extends obsidian.TextFileView {
             }
         }
         catch (err) {
-            console.log(err, 'stroke array is error');
+            console.error('Mindsidian: stroke array parse error', err);
         }
         this.colors = this.colors.concat(colors);
         // Curated color palette — distinct but flowing
@@ -39068,10 +39063,9 @@ class MindMapView extends obsidian.TextFileView {
             // this.app.vault.adapter.write(this.mindmap.path, this.data);
             try {
                 this.requestSave();
-                //new Notice(`${t("Save success")}`);
             }
             catch (err) {
-                console.log(err);
+                console.error('Mindsidian: save failed', err);
                 new obsidian.Notice(`${t("Save fail")}`);
             }
         }
@@ -39622,18 +39616,19 @@ class MindMapPlugin extends obsidian.Plugin {
                 id: 'Create New MindMap',
                 name: `${t('Create new mindmap')}`,
                 checkCallback: (checking) => {
-                    var _a;
-                    let leaf = this.app.workspace.activeLeaf;
-                    if (leaf) {
-                        if (!checking) {
-                            const targetFolder = this.app.fileManager.getNewFileParent(((_a = this.app.workspace.getActiveFile()) === null || _a === void 0 ? void 0 : _a.path) || "");
-                            if (targetFolder) {
-                                this.newMindMap(targetFolder);
-                            }
-                        }
-                        return true;
+                    // Per Obsidian guidelines, prefer getActiveFile()/getActiveViewOfType()
+                    // over the deprecated workspace.activeLeaf direct access.
+                    var activeFile = this.app.workspace.getActiveFile();
+                    if (!activeFile && !this.app.workspace.getLeaf(false)) {
+                        return false;
                     }
-                    return false;
+                    if (!checking) {
+                        const targetFolder = this.app.fileManager.getNewFileParent((activeFile === null || activeFile === void 0 ? void 0 : activeFile.path) || "");
+                        if (targetFolder) {
+                            this.newMindMap(targetFolder);
+                        }
+                    }
+                    return true;
                 }
             });
             this.addCommand({
@@ -40890,8 +40885,9 @@ class MindMapPlugin extends obsidian.Plugin {
         });
     }
     onunload() {
-        this.app.workspace.detachLeavesOfType(mindmapViewType);
-        //this.app.workspace.unregisterHoverLinkSource(frontMatterKey);
+        // Per Obsidian guidelines, do NOT detach leaves on unload — when the user
+        // updates the plugin, open mindmap leaves should re-initialize at their
+        // existing positions. Letting Obsidian handle leaf lifecycle is correct.
     }
     newMindMap(folder) {
         var _a;

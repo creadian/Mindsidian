@@ -2423,12 +2423,10 @@ export default class MindMap {
     }
     undo() {
         this.exec.undo();
-        console.log("Undo");
     }
 
     redo() {
         this.exec.redo();
-        console.log("Redo");
     }
 
     addNode(node: INode, parent?: INode, index = -1) {
@@ -2836,7 +2834,7 @@ export default class MindMap {
                    navigator.clipboard.writeText('');
                   }
             }catch(err){
-                console.log(err)
+                console.error('Mindsidian: clipboard write failed', err);
             }
         }
 
