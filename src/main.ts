@@ -229,18 +229,17 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'Replace by the previous text',
       name: `${t('Replace by the previous text')}`,
-      callback: () => {
+      checkCallback: (checking: boolean) => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-        if(mindmapView){
-          var mindmap = mindmapView.mindmap;
-          var node = mindmap.selectNode;
-          if(node) {
-              // var text = (node.data.oldText as string);
-              var text = (node.data.oldText);
-              node.setText(text);
-              console.log(text+" / "+node.data.text);
-          }
-  }
+        if (!mindmapView) return false;
+        if (checking) return true;
+        var mindmap = mindmapView.mindmap;
+        var node = mindmap.selectNode;
+        if (node) {
+          var text = (node.data.oldText);
+          node.setText(text);
+        }
+        return true;
       }
     });
 
@@ -364,17 +363,17 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'Select the node\'s text',
       name: `${t('Select the node\'s text')}`,
-      callback: () => {
+      checkCallback: (checking: boolean) => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-        if(mindmapView){
-          var mindmap = mindmapView.mindmap;
-          let node = mindmap.selectNode;
-          if(node) {
-            node.edit();
-            node.selectText();
-          }
-          //else: no node selected
+        if (!mindmapView) return false;
+        if (checking) return true;
+        var mindmap = mindmapView.mindmap;
+        let node = mindmap.selectNode;
+        if (node) {
+          node.edit();
+          node.selectText();
         }
+        return true;
       }
     });
 
@@ -531,29 +530,22 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'Strike through the node\'s text',
       name: `${t('Strike through the node\'s text')}`,
-      callback: () => {
+      checkCallback: (checking: boolean) => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-        if(mindmapView){
-          var mindmap = mindmapView.mindmap;
-          if(mindmap.selectNode) {// There is a node selected: format
-            var l_prefix_1 = "~~";
-            var l_prefix_2 = l_prefix_1;
-            var node = mindmap.selectNode;
-
-            if(node.data.isEdit)
-            {// A node is edited: set in bold only the selected part
-              var l_check_prefix = true;
-              var l_set_as_suffix = true;
-              node.setSelectedText(l_prefix_1, l_prefix_2, l_check_prefix, l_set_as_suffix, true);
-            }
-
-            else
-            {// Set in bold the whole node
-              mindmap._formatNode(node, l_prefix_1, l_prefix_2);
-            }
+        if (!mindmapView) return false;
+        if (checking) return true;
+        var mindmap = mindmapView.mindmap;
+        if (mindmap.selectNode) {
+          var l_prefix_1 = "~~";
+          var l_prefix_2 = l_prefix_1;
+          var node = mindmap.selectNode;
+          if (node.data.isEdit) {
+            node.setSelectedText(l_prefix_1, l_prefix_2, true, true, true);
+          } else {
+            mindmap._formatNode(node, l_prefix_1, l_prefix_2);
+          }
         }
-        //else: no node selected: nothing to do
-}
+        return true;
       }
     });
 
@@ -641,19 +633,18 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'Cancel edit',
       name: `${t('Cancel edit')}`,
-      callback: () => {
+      checkCallback: (checking: boolean) => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-        if(mindmapView){
-          var mindmap = mindmapView.mindmap;
-          var node = mindmap.selectNode;
-          if (node && node.data.isEdit) {
-            node.select();
-            node.mindmap.editNode = null;
-            node.cancelEdit();
-            mindmap.undo();
-            //this.selectNode.unSelect();
-          }
-        }
+        if (!mindmapView) return false;
+        var mindmap = mindmapView.mindmap;
+        var node = mindmap.selectNode;
+        if (!node || !node.data.isEdit) return false;
+        if (checking) return true;
+        node.select();
+        node.mindmap.editNode = null;
+        node.cancelEdit();
+        mindmap.undo();
+        return true;
       }
     });
 
@@ -1065,12 +1056,12 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'Center mindmap view',
       name: `${t('Center mindmap view')}`,
-      callback: () => {
+      checkCallback: (checking: boolean) => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-        if(mindmapView){
-          var mindmap = mindmapView.mindmap;
-          mindmap.center();
-        }
+        if (!mindmapView) return false;
+        if (checking) return true;
+        mindmapView.mindmap.center();
+        return true;
       }
     });
 
