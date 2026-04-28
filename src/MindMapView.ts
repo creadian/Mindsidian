@@ -363,31 +363,15 @@ export class MindMapView extends TextFileView implements HoverParent {
 
   getFrontMatter() {
     var frontMatter = '---\n\n';
-  //  var v: any = '';
-    if (this.fileCache.frontmatter) {
-      // for (var k in this.fileCache.frontmatter) {
-      //   if (k != 'position') {
-      //     if (Object.prototype.toString.call(this.fileCache.frontmatter[k]) == '[object Array]' || Object.prototype.toString.call(this.fileCache.frontmatter[k]) == '[object Object]') {
-      //       v = JSON.stringify(this.fileCache.frontmatter[k]);
-      //     } else if (Object.prototype.toString.call(this.fileCache.frontmatter[k]) == '[object Number]' || Object.prototype.toString.call(this.fileCache.frontmatter[k]) == "[object String]") {
-      //       v = this.fileCache.frontmatter[k];
-      //     }
-
-      //     if (v) {
-      //       frontMatter += `${k}: ${v}\n`;
-      //     }
-      //   }
-      // }
-      //var position = this.fileCache.frontmatter.position;
-      var position = this.fileCache.frontmatterPosition;
-      var end =  position['end'].offset;
-
-      frontMatter = this.data.substr(0,end);
+    // Defensive: fileCache can be null when metadata isn't ready yet
+    // (e.g. cold-start before the cache is built). frontmatterPosition
+    // can also be missing for files without frontmatter.
+    if (this.fileCache && this.fileCache.frontmatter && this.fileCache.frontmatterPosition?.end) {
+      var end = this.fileCache.frontmatterPosition.end.offset;
+      frontMatter = this.data.substr(0, end);
     }
-
-    frontMatter+='\n\n';
-    //frontMatter += `\n---\n\n`;
-    return frontMatter
+    frontMatter += '\n\n';
+    return frontMatter;
   }
 
   constructor(leaf: WorkspaceLeaf, plugin: MindMapPlugin) {
@@ -487,7 +471,9 @@ export class MindMapView extends TextFileView implements HoverParent {
 
           this.mindmap.path = view?.file.path;
           if (view.file) {
-            this.fileCache = this.app.metadataCache.getFileCache(view.file);
+            // Preserve the default fileCache if the metadata cache isn't ready yet
+            var cache = this.app.metadataCache.getFileCache(view.file);
+            if (cache) this.fileCache = cache;
             this.yamlString = this.getFrontMatter();
           }
         }
@@ -498,7 +484,8 @@ export class MindMapView extends TextFileView implements HoverParent {
       }, 100);
     } else {
       var view = this.leaf.view as MindMapView;
-      this.fileCache = this.app.metadataCache.getFileCache(view.file);
+      var cache = this.app.metadataCache.getFileCache(view.file);
+      if (cache) this.fileCache = cache;
       this.yamlString = this.getFrontMatter();
 
       this.mindmap.path = view?.file.path;
@@ -537,7 +524,8 @@ export class MindMapView extends TextFileView implements HoverParent {
   onQuickPreview(file: TFile, data: string) {
     if (file === this.file && data !== this.data) {
       this.setViewData(data);
-      this.fileCache = this.app.metadataCache.getFileCache(file);
+      var cache = this.app.metadataCache.getFileCache(file);
+      if (cache) this.fileCache = cache;
     }
   }
 

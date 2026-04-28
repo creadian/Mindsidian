@@ -509,7 +509,27 @@ class Node$1 {
                         var markdownLink = document.createElement('div');
                         markdownLink.classList.add('markdown-embed-link');
                         markdownLink.setAttribute('aria-label', 'Open link');
-                        markdownLink.innerHTML = `<a data-href="${src}" href="${src}" class="internal-link" target="_blank" rel="noopener"><svg viewBox="0 0 100 100" class="link" width="20" height="20"><path fill="currentColor" stroke="currentColor" d="M74,8c-4.8,0-9.3,1.9-12.7,5.3l-10,10c-2.9,2.9-4.7,6.6-5.1,10.6C46,34.6,46,35.3,46,36c0,2.7,0.6,5.4,1.8,7.8l3.1-3.1 C50.3,39.2,50,37.6,50,36c0-3.7,1.5-7.3,4.1-9.9l10-10c2.6-2.6,6.2-4.1,9.9-4.1s7.3,1.5,9.9,4.1c2.6,2.6,4.1,6.2,4.1,9.9 s-1.5,7.3-4.1,9.9l-10,10C71.3,48.5,67.7,50,64,50c-1.6,0-3.2-0.3-4.7-0.8l-3.1,3.1c2.4,1.1,5,1.8,7.8,1.8c4.8,0,9.3-1.9,12.7-5.3 l10-10C90.1,35.3,92,30.8,92,26s-1.9-9.3-5.3-12.7C83.3,9.9,78.8,8,74,8L74,8z M62,36c-0.5,0-1,0.2-1.4,0.6l-24,24 c-0.5,0.5-0.7,1.2-0.6,1.9c0.2,0.7,0.7,1.2,1.4,1.4c0.7,0.2,1.4,0,1.9-0.6l24-24c0.6-0.6,0.8-1.5,0.4-2.2C63.5,36.4,62.8,36,62,36 z M36,46c-4.8,0-9.3,1.9-12.7,5.3l-10,10c-3.1,3.1-5,7.2-5.2,11.6c0,0.4,0,0.8,0,1.2c0,4.8,1.9,9.3,5.3,12.7 C16.7,90.1,21.2,92,26,92s9.3-1.9,12.7-5.3l10-10C52.1,73.3,54,68.8,54,64c0-2.7-0.6-5.4-1.8-7.8l-3.1,3.1 c0.5,1.5,0.8,3.1,0.8,4.7c0,3.7-1.5,7.3-4.1,9.9l-10,10C33.3,86.5,29.7,88,26,88s-7.3-1.5-9.9-4.1S12,77.7,12,74 c0-3.7,1.5-7.3,4.1-9.9l10-10c2.6-2.6,6.2-4.1,9.9-4.1c1.6,0,3.2,0.3,4.7,0.8l3.1-3.1C41.4,46.6,38.7,46,36,46L36,46z"></path></svg></a>`;
+                        // Build the embed-link DOM via API instead of innerHTML
+                        // so attribute escaping is done by the browser (defends
+                        // against attribute injection if `src` contained quotes).
+                        var linkAnchor = document.createElement('a');
+                        linkAnchor.setAttribute('data-href', src);
+                        linkAnchor.setAttribute('href', src);
+                        linkAnchor.classList.add('internal-link');
+                        linkAnchor.setAttribute('target', '_blank');
+                        linkAnchor.setAttribute('rel', 'noopener');
+                        var linkSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        linkSvg.setAttribute('viewBox', '0 0 100 100');
+                        linkSvg.setAttribute('class', 'link');
+                        linkSvg.setAttribute('width', '20');
+                        linkSvg.setAttribute('height', '20');
+                        var linkPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        linkPath.setAttribute('fill', 'currentColor');
+                        linkPath.setAttribute('stroke', 'currentColor');
+                        linkPath.setAttribute('d', 'M74,8c-4.8,0-9.3,1.9-12.7,5.3l-10,10c-2.9,2.9-4.7,6.6-5.1,10.6C46,34.6,46,35.3,46,36c0,2.7,0.6,5.4,1.8,7.8l3.1-3.1 C50.3,39.2,50,37.6,50,36c0-3.7,1.5-7.3,4.1-9.9l10-10c2.6-2.6,6.2-4.1,9.9-4.1s7.3,1.5,9.9,4.1c2.6,2.6,4.1,6.2,4.1,9.9 s-1.5,7.3-4.1,9.9l-10,10C71.3,48.5,67.7,50,64,50c-1.6,0-3.2-0.3-4.7-0.8l-3.1,3.1c2.4,1.1,5,1.8,7.8,1.8c4.8,0,9.3-1.9,12.7-5.3 l10-10C90.1,35.3,92,30.8,92,26s-1.9-9.3-5.3-12.7C83.3,9.9,78.8,8,74,8L74,8z M62,36c-0.5,0-1,0.2-1.4,0.6l-24,24 c-0.5,0.5-0.7,1.2-0.6,1.9c0.2,0.7,0.7,1.2,1.4,1.4c0.7,0.2,1.4,0,1.9-0.6l24-24c0.6-0.6,0.8-1.5,0.4-2.2C63.5,36.4,62.8,36,62,36 z M36,46c-4.8,0-9.3,1.9-12.7,5.3l-10,10c-3.1,3.1-5,7.2-5.2,11.6c0,0.4,0,0.8,0,1.2c0,4.8,1.9,9.3,5.3,12.7 C16.7,90.1,21.2,92,26,92s9.3-1.9,12.7-5.3l10-10C52.1,73.3,54,68.8,54,64c0-2.7-0.6-5.4-1.8-7.8l-3.1,3.1 c0.5,1.5,0.8,3.1,0.8,4.7c0,3.7-1.5,7.3-4.1,9.9l-10,10C33.3,86.5,29.7,88,26,88s-7.3-1.5-9.9-4.1S12,77.7,12,74 c0-3.7,1.5-7.3,4.1-9.9l10-10c2.6-2.6,6.2-4.1,9.9-4.1c1.6,0,3.2,0.3,4.7,0.8l3.1-3.1C41.4,46.6,38.7,46,36,46L36,46z');
+                        linkSvg.appendChild(linkPath);
+                        linkAnchor.appendChild(linkSvg);
+                        markdownLink.appendChild(linkAnchor);
                         el.appendChild(markdownEmbed);
                         //  markdownEmbed.appendChild(markdownHead);
                         markdownEmbed.appendChild(markdownContent);
@@ -39129,28 +39149,16 @@ class MindMapView extends obsidian.TextFileView {
         }
     }
     getFrontMatter() {
+        var _a;
         var frontMatter = '---\n\n';
-        //  var v: any = '';
-        if (this.fileCache.frontmatter) {
-            // for (var k in this.fileCache.frontmatter) {
-            //   if (k != 'position') {
-            //     if (Object.prototype.toString.call(this.fileCache.frontmatter[k]) == '[object Array]' || Object.prototype.toString.call(this.fileCache.frontmatter[k]) == '[object Object]') {
-            //       v = JSON.stringify(this.fileCache.frontmatter[k]);
-            //     } else if (Object.prototype.toString.call(this.fileCache.frontmatter[k]) == '[object Number]' || Object.prototype.toString.call(this.fileCache.frontmatter[k]) == "[object String]") {
-            //       v = this.fileCache.frontmatter[k];
-            //     }
-            //     if (v) {
-            //       frontMatter += `${k}: ${v}\n`;
-            //     }
-            //   }
-            // }
-            //var position = this.fileCache.frontmatter.position;
-            var position = this.fileCache.frontmatterPosition;
-            var end = position['end'].offset;
+        // Defensive: fileCache can be null when metadata isn't ready yet
+        // (e.g. cold-start before the cache is built). frontmatterPosition
+        // can also be missing for files without frontmatter.
+        if (this.fileCache && this.fileCache.frontmatter && ((_a = this.fileCache.frontmatterPosition) === null || _a === void 0 ? void 0 : _a.end)) {
+            var end = this.fileCache.frontmatterPosition.end.offset;
             frontMatter = this.data.substr(0, end);
         }
         frontMatter += '\n\n';
-        //frontMatter += `\n---\n\n`;
         return frontMatter;
     }
     constructor(leaf, plugin) {
@@ -39239,7 +39247,10 @@ class MindMapView extends obsidian.TextFileView {
                     var view = leaf.view;
                     this.mindmap.path = view === null || view === void 0 ? void 0 : view.file.path;
                     if (view.file) {
-                        this.fileCache = this.app.metadataCache.getFileCache(view.file);
+                        // Preserve the default fileCache if the metadata cache isn't ready yet
+                        var cache = this.app.metadataCache.getFileCache(view.file);
+                        if (cache)
+                            this.fileCache = cache;
                         this.yamlString = this.getFrontMatter();
                     }
                 }
@@ -39251,7 +39262,9 @@ class MindMapView extends obsidian.TextFileView {
         }
         else {
             var view = this.leaf.view;
-            this.fileCache = this.app.metadataCache.getFileCache(view.file);
+            var cache = this.app.metadataCache.getFileCache(view.file);
+            if (cache)
+                this.fileCache = cache;
             this.yamlString = this.getFrontMatter();
             this.mindmap.path = view === null || view === void 0 ? void 0 : view.file.path;
             this.mindmap.init();
@@ -39282,7 +39295,9 @@ class MindMapView extends obsidian.TextFileView {
     onQuickPreview(file, data) {
         if (file === this.file && data !== this.data) {
             this.setViewData(data);
-            this.fileCache = this.app.metadataCache.getFileCache(file);
+            var cache = this.app.metadataCache.getFileCache(file);
+            if (cache)
+                this.fileCache = cache;
         }
     }
     updateMindMap() {
