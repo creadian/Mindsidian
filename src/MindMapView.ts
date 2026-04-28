@@ -550,8 +550,11 @@ export class MindMapView extends TextFileView implements HoverParent {
   }
 
   async onFileMetadataChange(file: TFile) {
-    var path = file.path;
-    let md = await this.app.vault.adapter.read(path);
+    // Bail early if this metadata change isn't for the file this view is showing.
+    // Otherwise every metadata change in the vault triggers N disk reads
+    // (one per open mindmap view).
+    if (!this.file || file.path !== this.file.path) return;
+    let md = await this.app.vault.adapter.read(file.path);
     this.onQuickPreview(file, md);
   }
 

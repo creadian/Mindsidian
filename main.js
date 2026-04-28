@@ -8204,7 +8204,7 @@ class MindMap {
         this.appEl.removeEventListener('dragstart', this.appDragstart);
         this.appEl.removeEventListener('dragover', this.appDragover);
         this.appEl.removeEventListener('dragend', this.appDragend);
-        this.appEl.removeEventListener('dblClick', this.appDblclickFn);
+        this.appEl.removeEventListener('dblclick', this.appDblclickFn);
         this.appEl.removeEventListener('mouseover', this.appMouseOverFn);
         this.appEl.removeEventListener('drop', this.appDrop);
         document.removeEventListener('keyup', this.appKeyup);
@@ -9275,13 +9275,16 @@ class MindMap {
         }
     }
     appDrop(evt) {
-        if (evt.target instanceof HTMLElement) {
+        // Internal-node move/copy only applies when this drop originated from
+        // an internal dragstart (which set _dragNode). External file drops
+        // (e.g. .xmind imported from Finder) leave _dragNode undefined — fall
+        // through to the file-handling block below instead of crashing.
+        if (evt.target instanceof HTMLElement && this._dragNode) {
             if (evt.target.closest('.mm-node')) {
                 evt.preventDefault();
                 var dropNodeId = evt.target.closest('.mm-node').getAttribute('data-id');
                 var dropNode = this.getNodeById(dropNodeId);
-                if (this._dragNode.data.isRoot) ;
-                else {
+                if (!this._dragNode.data.isRoot) {
                     if (evt.ctrlKey) { // Ctrl key pressed: copy the node
                         let copiedNode = this.copyNode(this._dragNode);
                         dropNode.select();
@@ -39291,8 +39294,12 @@ class MindMapView extends obsidian.TextFileView {
     }
     onFileMetadataChange(file) {
         return __awaiter(this, void 0, void 0, function* () {
-            var path = file.path;
-            let md = yield this.app.vault.adapter.read(path);
+            // Bail early if this metadata change isn't for the file this view is showing.
+            // Otherwise every metadata change in the vault triggers N disk reads
+            // (one per open mindmap view).
+            if (!this.file || file.path !== this.file.path)
+                return;
+            let md = yield this.app.vault.adapter.read(file.path);
             this.onQuickPreview(file, md);
         });
     }

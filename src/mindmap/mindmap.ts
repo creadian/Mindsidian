@@ -370,7 +370,7 @@ export default class MindMap {
         this.appEl.removeEventListener('dragstart', this.appDragstart);
         this.appEl.removeEventListener('dragover', this.appDragover);
         this.appEl.removeEventListener('dragend', this.appDragend);
-        this.appEl.removeEventListener('dblClick', this.appDblclickFn);
+        this.appEl.removeEventListener('dblclick', this.appDblclickFn);
         this.appEl.removeEventListener('mouseover', this.appMouseOverFn);
         this.appEl.removeEventListener('drop', this.appDrop);
         document.removeEventListener('keyup', this.appKeyup);
@@ -1789,19 +1789,20 @@ export default class MindMap {
     }
 
     appDrop(evt: any) {
-        if (evt.target instanceof HTMLElement) {
+        // Internal-node move/copy only applies when this drop originated from
+        // an internal dragstart (which set _dragNode). External file drops
+        // (e.g. .xmind imported from Finder) leave _dragNode undefined — fall
+        // through to the file-handling block below instead of crashing.
+        if (evt.target instanceof HTMLElement && this._dragNode) {
             if (evt.target.closest('.mm-node')) {
                 evt.preventDefault();
                 var dropNodeId = evt.target.closest('.mm-node').getAttribute('data-id');
                 var dropNode = this.getNodeById(dropNodeId);
-                if (this._dragNode.data.isRoot) {
-
-                } else {
+                if (!this._dragNode.data.isRoot) {
                     if (evt.ctrlKey) {// Ctrl key pressed: copy the node
                         let copiedNode = this.copyNode(this._dragNode);
                         dropNode.select();
                         this.pasteNode(copiedNode);
-
                     }
                     else {// Move the node
                         this.moveNode(this._dragNode, dropNode,this._dragType);
