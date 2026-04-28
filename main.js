@@ -39699,7 +39699,9 @@ class MindMapPlugin extends obsidian.Plugin {
                     }
                     else if (markdownView != null) {
                         this.mindmapFileModes[markdownView.leaf.id || markdownView.file.path] = mindmapViewType;
-                        this.setMarkdownView(markdownView.leaf);
+                        // Direct switch to mindmap (the previous setMarkdownView call relied
+                        // on the monkey-patch to flip back, which was gated by _loaded=false).
+                        this.setMindMapView(markdownView.leaf);
                     }
                 }
             });
@@ -39711,7 +39713,7 @@ class MindMapPlugin extends obsidian.Plugin {
                     const markdownView = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
                     if (markdownView != null) {
                         this.mindmapFileModes[markdownView.leaf.id || markdownView.file.path] = mindmapViewType;
-                        this.setMarkdownView(markdownView.leaf);
+                        this.setMindMapView(markdownView.leaf);
                     }
                 }
             });
@@ -40937,6 +40939,10 @@ class MindMapPlugin extends obsidian.Plugin {
             this.registerEvents();
             this.registerMonkeyAround();
             this.addSettingTab(new MindMapSettingsTab(this.app, this));
+            // Mark the plugin as loaded so the WorkspaceLeaf.setViewState monkey-patch
+            // becomes active. Without this, the patch falls through and files marked
+            // with the mindmap frontmatter won't auto-convert from markdown to mindmap.
+            this._loaded = true;
         });
     }
     onunload() {

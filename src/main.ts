@@ -61,7 +61,9 @@ export default class MindMapPlugin extends Plugin {
           this.setMarkdownView(mindmapView.leaf);
         }else if(markdownView!=null){
           this.mindmapFileModes[(markdownView.leaf as any).id || markdownView.file.path] = mindmapViewType;
-          this.setMarkdownView(markdownView.leaf);
+          // Direct switch to mindmap (the previous setMarkdownView call relied
+          // on the monkey-patch to flip back, which was gated by _loaded=false).
+          this.setMindMapView(markdownView.leaf);
         }
       }
     });
@@ -75,7 +77,7 @@ export default class MindMapPlugin extends Plugin {
         if(markdownView!=null)
         {
           this.mindmapFileModes[(markdownView.leaf as any).id || markdownView.file.path] = mindmapViewType;
-          this.setMarkdownView(markdownView.leaf);
+          this.setMindMapView(markdownView.leaf);
         }
       }
     });
@@ -1317,6 +1319,10 @@ export default class MindMapPlugin extends Plugin {
 
     this.addSettingTab(new MindMapSettingsTab(this.app, this));
 
+    // Mark the plugin as loaded so the WorkspaceLeaf.setViewState monkey-patch
+    // becomes active. Without this, the patch falls through and files marked
+    // with the mindmap frontmatter won't auto-convert from markdown to mindmap.
+    this._loaded = true;
   }
 
   onunload() {
