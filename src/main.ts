@@ -1132,6 +1132,8 @@ export default class MindMapPlugin extends Plugin {
         if(!mindmapView) return false;
         if(checking) return true;
         var mindmap = mindmapView.mindmap;
+        // Anchor at viewport center so reset doesn't jump if scalePointer is stale.
+        mindmap._anchorScaleAt(mindmap.containerEL.clientWidth / 2, mindmap.containerEL.clientHeight / 2);
         mindmap.scale(100);
         return true;
       }

@@ -9756,6 +9756,12 @@ class MindMap {
         // Consume the accumulated amount
         var steps = Math.floor(Math.abs(this._scrollAccum) / threshold);
         this._scrollAccum = this._scrollAccum % threshold;
+        // Anchor at the cursor's container-relative coord BEFORE updating
+        // mindScale. This eliminates the start-of-zoom jump that occurs when
+        // scalePointer has gone stale (panning the view doesn't fire
+        // appMouseMove, so scalePointer can be far off-screen).
+        var containerRect = this.containerEL.getBoundingClientRect();
+        this._anchorScaleAt(evt.clientX - containerRect.left, evt.clientY - containerRect.top);
         if (newDir > 0) {
             this.mindScale = Math.min(300, this.mindScale + steps);
         }
@@ -10202,6 +10208,43 @@ class MindMap {
         this.appEl.style.setProperty('--dot-tap-size', `${tapSize}px`);
         this.appEl.style.setProperty('--dot-tap-offset', `${Math.round(tapSize / 2)}px`);
     }
+    // Anchor the next scale operation at the given container viewport coord.
+    // Computes the canvas element coord currently under (midX, midY), then
+    // updates scalePointer + CSS transform-origin + scroll so that point
+    // stays at (midX, midY) after the upcoming scale change.
+    //
+    // CRITICAL: reads the ACTUAL CSS transform-origin (via getComputedStyle),
+    // NOT scalePointer. They can desync because appMouseMove updates
+    // scalePointer on every cursor move without touching CSS (and shouldn't —
+    // changing CSS origin mid-cursor-move at non-1 scale would itself cause
+    // visual jumps). Using stale scalePointer as ox produced massive jumps
+    // at low zoom due to the (1-s)/s amplification factor.
+    //
+    // (midX, midY) are in containerEL viewport coords. Mirrors the v0.5.1
+    // mobile pinch-zoom gesture-start math (see iOS Touch Saga §5).
+    _anchorScaleAt(midX, midY) {
+        var s = this.mindScale / 100;
+        // Read the actual CSS transform-origin (source of truth for the
+        // currently-rendered visual). getComputedStyle returns absolute px.
+        var originStr = getComputedStyle(this.appEl).transformOrigin;
+        var ox = 0, oy = 0;
+        if (originStr) {
+            var parts = originStr.split(/\s+/);
+            if (parts.length >= 1)
+                ox = parseFloat(parts[0]) || 0;
+            if (parts.length >= 2)
+                oy = parseFloat(parts[1]) || 0;
+        }
+        var focalEx = (midX + this.containerEL.scrollLeft - ox * (1 - s)) / s;
+        var focalEy = (midY + this.containerEL.scrollTop - oy * (1 - s)) / s;
+        this.scalePointer = [focalEx, focalEy];
+        // Sync CSS transform-origin to the new focal point in the same
+        // sync block as the scroll change, so the browser never sees an
+        // intermediate "old origin, new scroll" state.
+        this.appEl.style.transformOrigin = `${focalEx}px ${focalEy}px`;
+        this.containerEL.scrollLeft = focalEx - midX;
+        this.containerEL.scrollTop = focalEy - midY;
+    }
     setScale(type) {
         if (type == "up") {
             var n = this.mindScale + 10;
@@ -10209,6 +10252,9 @@ class MindMap {
         else {
             var n = this.mindScale - 10;
         }
+        // Anchor at viewport center so the keyboard zoom doesn't jump
+        // when scalePointer is stale (e.g. after panning).
+        this._anchorScaleAt(this.containerEL.clientWidth / 2, this.containerEL.clientHeight / 2);
         this.scale(n);
     }
     copyNode(node) {
@@ -40873,6 +40919,8 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (checking)
                         return true;
                     var mindmap = mindmapView.mindmap;
+                    // Anchor at viewport center so reset doesn't jump if scalePointer is stale.
+                    mindmap._anchorScaleAt(mindmap.containerEL.clientWidth / 2, mindmap.containerEL.clientHeight / 2);
                     mindmap.scale(100);
                     return true;
                 }
