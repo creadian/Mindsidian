@@ -538,18 +538,24 @@ export class MindMapView extends TextFileView implements HoverParent {
     this.updateMobileBarPosition();
     this.attachVisualViewportListener();
 
-    // Selection-state poller: cheap (every 250ms, single class write when
-    // state changes). Catches every code path that mutates selectNode
-    // without us needing to hook each one.
+    // State poller: tracks selection AND edit state, AND continuously
+    // re-applies bar position. Position re-application is cheap (single
+    // style write) and catches cases where visualViewport events miss-fire
+    // — e.g. iOS sometimes doesn't fire `resize` on subsequent keyboard
+    // appearances within the same view lifecycle.
     var lastSig = '';
     this._mobileSelectionPoller = setInterval(() => {
       if (!this.mindmap || !this._mobileActionBar) return;
       var sel = this.mindmap.selectNode;
-      var sig = sel ? (sel.getId() + ':' + (sel.data.isRoot ? '1' : '0')) : '';
+      var editing = !!this.mindmap.editNode;
+      var sig = (sel ? sel.getId() + ':' + (sel.data.isRoot ? '1' : '0') : '')
+              + '|' + (editing ? '1' : '0');
       if (sig !== lastSig) {
         lastSig = sig;
         this.updateMobileActionBarVisibility();
       }
+      // Always re-apply position. Safety net against missed events.
+      this.updateMobileBarPosition();
     }, 250);
   }
 
@@ -566,20 +572,31 @@ export class MindMapView extends TextFileView implements HoverParent {
   }
 
   // Compute and apply the bar's `bottom` based on:
-  //   - whether the keyboard is visible (visualViewport.height < innerHeight)
+  //   - whether the keyboard is visible (visualViewport.height shrunk OR a
+  //     node is currently being edited — the editing signal catches cases
+  //     where iOS doesn't fire visualViewport events on every keyboard show)
   //   - the user's two offset settings (no-keyboard vs with-keyboard)
   //   - the measured safe-area-inset-bottom (no-keyboard case only)
-  // Called on init, on visualViewport resize/scroll, and on settings change.
+  //   - a fallback estimated keyboard height when we know the user is
+  //     editing but visualViewport reports nothing (rare iOS WebView edge)
+  //
+  // Called on init, on visualViewport resize/scroll, on settings change,
+  // and on every poller tick (250ms) as a final safety net.
   updateMobileBarPosition() {
     if (!this._mobileActionBar) return;
     var vv: any = (window as any).visualViewport;
-    // 50px threshold to distinguish keyboard from minor viewport fluctuations.
-    var keyboardOffset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-    var keyboardVisible = keyboardOffset > 50;
+    var rawOffset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    var editing = !!(this.mindmap && this.mindmap.editNode);
+    // 50px threshold distinguishes a real keyboard from minor viewport jitter.
+    var keyboardVisible = rawOffset > 50 || editing;
     var bottom;
     if (keyboardVisible) {
       var offWith = this.plugin.settings.mobileBarOffsetWithKeyboard ?? 0;
-      bottom = keyboardOffset + offWith;
+      // Use vv data when available (most precise). If we only know the user
+      // is editing but vv doesn't show shrinkage, fall back to an estimated
+      // keyboard height (270px is typical iPhone portrait).
+      var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
+      bottom = effectiveOffset + offWith;
     } else {
       var offNo = this.plugin.settings.mobileBarOffsetNoKeyboard ?? 24;
       bottom = this._mobileSafeAreaBottom + offNo;
