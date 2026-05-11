@@ -39436,13 +39436,18 @@ class MindMapView extends obsidian.TextFileView {
         if (keyboardVisible) {
             var offWith = (_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 100;
             var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
-            // iOS visualViewport reports the boundary at the top of the keyboard
-            // CHROME (predictive-text strip, accessibility bar, autocorrect
-            // suggestions) — typically ~3cm above where the actual keys start.
-            // Without compensation the bar sits "waaay too high" above the keys.
-            // 113px is the empirical iPhone-portrait value Christian dialed in.
-            var iosKeyboardChromeShift = 113;
-            bottom = effectiveOffset + offWith - iosKeyboardChromeShift;
+            // Empirical iOS Obsidian feel:
+            //  - 1 CSS px of `bottom` change → ~½ cm visible movement (something
+            //    in the WebView is scaling our values, probably viewport-related).
+            //    So we multiply the user's offset by 2 to get 2x the visible range
+            //    Christian asked for.
+            //  - The keyboard's chrome (predictive + autocorrect + accessibility
+            //    bar) eats ~3cm above the keys, AND there's additional Obsidian
+            //    editor toolbar space. Combined shift of 413 puts the default
+            //    setting of 100 right at a comfortable thumb-reach height.
+            var multiplier = 2;
+            var shift = 413;
+            bottom = effectiveOffset + offWith * multiplier - shift;
         }
         else {
             var offNo = (_b = this.plugin.settings.mobileBarOffsetNoKeyboard) !== null && _b !== void 0 ? _b : 24;
@@ -40159,10 +40164,10 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
         });
         new obsidian.Setting(containerEl)
             .setName('Mobile action bar — vertical offset, keyboard visible (px)')
-            .setDesc('Position when the keyboard is shown. 100 is the comfortable default (bar ' +
-            'sits just above the keys, below the predictive-text strip). Dial up toward ' +
-            '200 for more clearance, down toward 0 to push the bar lower — depending on ' +
-            'your keyboard chrome, lower values may end up partially hidden.')
+            .setDesc('Position when the keyboard is shown. 100 is the comfortable default; dial ' +
+            'up toward 200 for more clearance above the keys, down toward 0 to push the ' +
+            'bar lower. Each step is roughly 1mm of visible movement. Very low values ' +
+            'may put the bar partially behind the keyboard chrome.')
             .addText(text => {
             var _a;
             return text
