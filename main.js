@@ -39185,8 +39185,47 @@ class MindMapView extends obsidian.TextFileView {
             }
         };
     }
+    // Read the saved zoom for this file from frontmatter, falling back to
+    // the plugin's defaultZoom setting. Clamped to the same 20-300 range
+    // used elsewhere in the plugin.
+    getInitialZoom() {
+        var _a;
+        var raw = null;
+        if (this.file) {
+            var fm = (_a = this.app.metadataCache.getFileCache(this.file)) === null || _a === void 0 ? void 0 : _a.frontmatter;
+            raw = fm === null || fm === void 0 ? void 0 : fm['mindmap-zoom'];
+        }
+        var zoom;
+        if (typeof raw === 'number' && !isNaN(raw)) {
+            zoom = raw;
+        }
+        else {
+            var def = this.plugin.settings.defaultZoom;
+            zoom = (typeof def === 'number' && !isNaN(def)) ? def : 100;
+        }
+        return Math.max(20, Math.min(300, Math.round(zoom)));
+    }
+    // Write the current zoom to the file's frontmatter. Fire-and-forget;
+    // called on view close/unload before mindScale is reset. Safe to call
+    // synchronously — failures are logged but don't throw.
+    saveZoomToFrontmatter(zoom) {
+        if (!this.file)
+            return;
+        if (typeof zoom !== 'number' || isNaN(zoom))
+            return;
+        var clamped = Math.max(20, Math.min(300, Math.round(zoom)));
+        this.app.fileManager.processFrontMatter(this.file, (fm) => {
+            fm['mindmap-zoom'] = clamped;
+        }).catch((err) => {
+            console.error('Mindsidian: failed to save mindmap-zoom to frontmatter', err);
+        });
+    }
     onClose() {
         return __awaiter(this, void 0, void 0, function* () {
+            // Persist current zoom to frontmatter BEFORE resetting it.
+            if (this.mindmap) {
+                this.saveZoomToFrontmatter(this.mindmap.mindScale);
+            }
             // Reset zoom/touch state before clearing — guards against state leaking
             // into the next instance if the same file is reopened (Cmd+W bug).
             if (this.mindmap) {
@@ -39266,6 +39305,10 @@ class MindMapView extends obsidian.TextFileView {
                 this.mindmap.init();
                 this.mindmap.refresh();
                 this.mindmap.view = this;
+                // Apply the saved or default zoom AFTER init/refresh have laid out
+                // the canvas. There may be a brief frame at 100% before the scale
+                // applies — acceptable for v0.5.7.
+                this.mindmap.scale(this.getInitialZoom());
                 this.firstInit = false;
             }, 100);
         }
@@ -39279,11 +39322,17 @@ class MindMapView extends obsidian.TextFileView {
             this.mindmap.init();
             this.mindmap.refresh();
             this.mindmap.view = this;
+            this.mindmap.scale(this.getInitialZoom());
         }
     }
     onunload() {
         this.app.workspace.offref("quick-preview");
         this.app.workspace.offref("resize");
+        // Persist current zoom to frontmatter BEFORE resetting it. If onClose
+        // already ran, this.mindmap is null and this is a no-op.
+        if (this.mindmap) {
+            this.saveZoomToFrontmatter(this.mindmap.mindScale);
+        }
         if (this.mindmap) {
             this.mindmap.mindScale = 100;
             this.mindmap.scalePointer = [];
@@ -39670,6 +39719,24 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
             this.plugin.settings.focusOnMove = value;
             this.plugin.saveData(this.plugin.settings);
         }));
+        new obsidian.Setting(containerEl)
+            .setName('Default zoom on open (%)')
+            .setDesc('Zoom level applied when opening a mindmap that has no `mindmap-zoom` value ' +
+            'in its frontmatter. After you close the mindmap, the current zoom is saved ' +
+            'back to that file\'s frontmatter, so each file remembers its own zoom.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.defaultZoom) !== null && _a !== void 0 ? _a : 100).toString())
+                .setPlaceholder('Example: 80')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.defaultZoom = Math.max(20, Math.min(300, n));
+                this.plugin.saveData(this.plugin.settings);
+            });
+        });
         new obsidian.Setting(containerEl)
             .setName('Fold state persistence')
             .setDesc('How to remember which branches you collapsed across reloads. ' +

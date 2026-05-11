@@ -22,4 +22,7 @@ export class MindMapSettings {
     // Map of file path → array of collapsed node IDs (used when
     // foldStatePersistence is 'plugin-data'). Persisted via saveData().
     foldStateByFile?: { [filePath: string]: string[] };
+    // Default zoom (%) used when a mindmap file has no `mindmap-zoom`
+    // value in its frontmatter. Per-file zoom is saved on view close.
+    defaultZoom: number = 100;
 }

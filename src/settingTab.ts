@@ -182,6 +182,24 @@ export class MindMapSettingsTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
+            .setName('Default zoom on open (%)')
+            .setDesc(
+                'Zoom level applied when opening a mindmap that has no `mindmap-zoom` value ' +
+                'in its frontmatter. After you close the mindmap, the current zoom is saved ' +
+                'back to that file\'s frontmatter, so each file remembers its own zoom.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.defaultZoom ?? 100).toString())
+                    .setPlaceholder('Example: 80')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.defaultZoom = Math.max(20, Math.min(300, n));
+                        this.plugin.saveData(this.plugin.settings);
+                    }));
+
+        new Setting(containerEl)
             .setName('Fold state persistence')
             .setDesc(
                 'How to remember which branches you collapsed across reloads. ' +

@@ -388,7 +388,44 @@ export class MindMapView extends TextFileView implements HoverParent {
   }
 
 
+  // Read the saved zoom for this file from frontmatter, falling back to
+  // the plugin's defaultZoom setting. Clamped to the same 20-300 range
+  // used elsewhere in the plugin.
+  private getInitialZoom(): number {
+    var raw: any = null;
+    if (this.file) {
+      var fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter;
+      raw = fm?.['mindmap-zoom'];
+    }
+    var zoom: number;
+    if (typeof raw === 'number' && !isNaN(raw)) {
+      zoom = raw;
+    } else {
+      var def = this.plugin.settings.defaultZoom;
+      zoom = (typeof def === 'number' && !isNaN(def)) ? def : 100;
+    }
+    return Math.max(20, Math.min(300, Math.round(zoom)));
+  }
+
+  // Write the current zoom to the file's frontmatter. Fire-and-forget;
+  // called on view close/unload before mindScale is reset. Safe to call
+  // synchronously — failures are logged but don't throw.
+  private saveZoomToFrontmatter(zoom: number): void {
+    if (!this.file) return;
+    if (typeof zoom !== 'number' || isNaN(zoom)) return;
+    var clamped = Math.max(20, Math.min(300, Math.round(zoom)));
+    this.app.fileManager.processFrontMatter(this.file, (fm: any) => {
+      fm['mindmap-zoom'] = clamped;
+    }).catch((err: any) => {
+      console.error('Mindsidian: failed to save mindmap-zoom to frontmatter', err);
+    });
+  }
+
   async onClose() {
+    // Persist current zoom to frontmatter BEFORE resetting it.
+    if (this.mindmap) {
+      this.saveZoomToFrontmatter(this.mindmap.mindScale);
+    }
     // Reset zoom/touch state before clearing — guards against state leaking
     // into the next instance if the same file is reopened (Cmd+W bug).
     if (this.mindmap) {
@@ -480,6 +517,10 @@ export class MindMapView extends TextFileView implements HoverParent {
         this.mindmap.init();
         this.mindmap.refresh();
         this.mindmap.view = this;
+        // Apply the saved or default zoom AFTER init/refresh have laid out
+        // the canvas. There may be a brief frame at 100% before the scale
+        // applies — acceptable for v0.5.7.
+        this.mindmap.scale(this.getInitialZoom());
         this.firstInit = false;
       }, 100);
     } else {
@@ -492,12 +533,19 @@ export class MindMapView extends TextFileView implements HoverParent {
       this.mindmap.init();
       this.mindmap.refresh();
       this.mindmap.view = this;
+      this.mindmap.scale(this.getInitialZoom());
     }
   }
 
   onunload() {
     this.app.workspace.offref("quick-preview");
     this.app.workspace.offref("resize");
+
+    // Persist current zoom to frontmatter BEFORE resetting it. If onClose
+    // already ran, this.mindmap is null and this is a no-op.
+    if (this.mindmap) {
+      this.saveZoomToFrontmatter(this.mindmap.mindScale);
+    }
 
     if (this.mindmap) {
       this.mindmap.mindScale = 100;
