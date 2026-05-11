@@ -332,10 +332,13 @@ export default class MindMap {
         this.appEl.addEventListener('dragover', this.appDragover);
         this.appEl.addEventListener('dragend', this.appDragend);
         this.appEl.addEventListener('drop', this.appDrop);
-        document.addEventListener('keyup', this.appKeyup);
-        document.addEventListener('keydown', this.appKeydown);
-        document.addEventListener('compositionstart',this.compositionStart)
-        document.addEventListener('compositionend',this.compositionEnd)
+        // Use the document that owns this view's DOM — for popout windows
+        // ownerDocument is the popout's document, not the main window's.
+        var doc = this.containerEL.ownerDocument || document;
+        doc.addEventListener('keyup', this.appKeyup);
+        doc.addEventListener('keydown', this.appKeydown);
+        doc.addEventListener('compositionstart',this.compositionStart)
+        doc.addEventListener('compositionend',this.compositionEnd)
         if(Platform.isDesktop){
             this.containerEL.addEventListener('wheel', this.appMousewheel, { passive: false });
             this.containerEL.addEventListener('wheel', this.appContainerWheel, { passive: false });
@@ -373,10 +376,11 @@ export default class MindMap {
         this.appEl.removeEventListener('dblclick', this.appDblclickFn);
         this.appEl.removeEventListener('mouseover', this.appMouseOverFn);
         this.appEl.removeEventListener('drop', this.appDrop);
-        document.removeEventListener('keyup', this.appKeyup);
-        document.removeEventListener('keydown', this.appKeydown);
-        document.removeEventListener('compositionstart',this.compositionStart)
-        document.removeEventListener('compositionend',this.compositionEnd)
+        var doc = this.containerEL.ownerDocument || document;
+        doc.removeEventListener('keyup', this.appKeyup);
+        doc.removeEventListener('keydown', this.appKeydown);
+        doc.removeEventListener('compositionstart',this.compositionStart)
+        doc.removeEventListener('compositionend',this.compositionEnd)
 
         if(Platform.isDesktop){
             this.containerEL.removeEventListener('wheel', this.appMousewheel);
