@@ -433,6 +433,10 @@ export class MindMapView extends TextFileView implements HoverParent {
   private _mobileRecenterBtn: HTMLButtonElement | null = null;
   private _mobileVVListener: (() => void) | null = null;
   private _mobileSelectionPoller: any = null;
+  // Resting distance from screen bottom in px (safe area + extra clearance).
+  // Measured once on init via a probe element so we can do positioning math
+  // in JS without re-reading env() at every keyboard event.
+  private _mobileBarBaseBottom: number = 24;
 
   private initMobileActionBar() {
     var bar = document.createElement('div');
@@ -460,15 +464,16 @@ export class MindMapView extends TextFileView implements HoverParent {
     bar.appendChild(childBtn);
     bar.appendChild(recenterBtn);
 
-    // CRITICAL for Option-A chained editing: prevent focus loss from the
-    // editing contentEditable when the user taps a button. Without this,
-    // tapping the button blurs the input → iOS dismisses the keyboard →
-    // we refocus the new node → keyboard re-appears (flicker).
+    // Prevent focus transfer from the editing contentEditable on desktop
+    // mousedown. NOT on touchstart — iOS uses touchstart→touchend to
+    // synthesize click, and preventDefault on touchstart cancels the click
+    // entirely (which is exactly why the buttons stopped firing in v0.5.12).
+    // On iOS the cost is a brief keyboard flicker on chained add during edit
+    // — acceptable for now; if it becomes a problem we'll switch to manual
+    // touchend handling.
     var keepFocus = (e: Event) => { e.preventDefault(); };
     siblingBtn.addEventListener('mousedown', keepFocus);
-    siblingBtn.addEventListener('touchstart', keepFocus, { passive: false });
     childBtn.addEventListener('mousedown', keepFocus);
-    childBtn.addEventListener('touchstart', keepFocus, { passive: false });
 
     siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
     childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
@@ -483,9 +488,19 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileChildBtn = childBtn;
     this._mobileRecenterBtn = recenterBtn;
 
-    // Keyboard adaptation: when iOS shows the keyboard, visualViewport.height
-    // shrinks. We translate the bar up by (window.innerHeight - vv.height -
-    // vv.offsetTop) so it sits just above the keyboard.
+    // Measure safe-area-inset-bottom once (via a hidden probe) and add a
+    // ~24px clearance on top. This is the bar's resting bottom edge.
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;bottom:0;left:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;';
+    document.body.appendChild(probe);
+    var safeArea = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+    document.body.removeChild(probe);
+    this._mobileBarBaseBottom = safeArea + 24;
+    bar.style.bottom = `${this._mobileBarBaseBottom}px`;
+
+    // Keyboard adaptation via visualViewport: set bar's bottom to
+    // max(baseBottom, keyboardOffset) so it sits just above the keyboard
+    // when shown and at its resting position when not.
     this.attachVisualViewportListener();
 
     // Selection-state poller: cheap (every 250ms, single class write when
@@ -509,7 +524,10 @@ export class MindMapView extends TextFileView implements HoverParent {
     var bar = this._mobileActionBar;
     var update = () => {
       var keyboardOffset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      bar.style.transform = `translateY(-${keyboardOffset}px)`;
+      // No CSS transition on bottom — visualViewport.resize fires at ~60fps
+      // during the keyboard animation, so direct bottom updates track it
+      // smoothly. A transition would cumulatively lag behind each event.
+      bar.style.bottom = `${Math.max(this._mobileBarBaseBottom, keyboardOffset)}px`;
     };
     update();
     vv.addEventListener('resize', update);

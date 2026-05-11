@@ -333,15 +333,18 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: env(safe-area-inset-bottom, 0);
+  /* `bottom` is set in JS — combines safe-area-inset-bottom + clearance,
+     and updates dynamically to keyboardOffset when iOS shows the keyboard.
+     No CSS transition on bottom: visualViewport.resize fires at ~60fps
+     during the keyboard animation and direct updates track it 1:1. */
+  bottom: 24px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 16px;
-  padding: 8px 16px 8px 16px;
+  padding: 0 16px;
   z-index: 100;
   pointer-events: none;
-  transition: transform 0.15s ease;
 }
 
 .mm-mobile-action-btn {
