@@ -265,9 +265,10 @@ export class MindMapSettingsTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName('Mobile action bar — vertical offset, keyboard visible (px)')
             .setDesc(
-                'Px above the keyboard top when it IS shown. 0 = bar sits right at the ' +
-                'keyboard top (lowest visible position — anything lower would be hidden behind ' +
-                'the keyboard on iOS). 200 = lots of clearance above the keyboard. Default 100.',
+                'Position when the keyboard is shown. 100 is the comfortable default (bar ' +
+                'sits just above the keys, below the predictive-text strip). Dial up toward ' +
+                '200 for more clearance, down toward 0 to push the bar lower — depending on ' +
+                'your keyboard chrome, lower values may end up partially hidden.',
             )
             .addText(text =>
                 text

@@ -599,7 +599,13 @@ export class MindMapView extends TextFileView implements HoverParent {
     if (keyboardVisible) {
       var offWith = this.plugin.settings.mobileBarOffsetWithKeyboard ?? 100;
       var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
-      bottom = effectiveOffset + offWith;
+      // iOS visualViewport reports the boundary at the top of the keyboard
+      // CHROME (predictive-text strip, accessibility bar, autocorrect
+      // suggestions) — typically ~3cm above where the actual keys start.
+      // Without compensation the bar sits "waaay too high" above the keys.
+      // 113px is the empirical iPhone-portrait value Christian dialed in.
+      var iosKeyboardChromeShift = 113;
+      bottom = effectiveOffset + offWith - iosKeyboardChromeShift;
     } else {
       var offNo = this.plugin.settings.mobileBarOffsetNoKeyboard ?? 24;
       bottom = this._mobileSafeAreaBottom + offNo;
