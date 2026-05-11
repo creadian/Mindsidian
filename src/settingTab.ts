@@ -265,18 +265,18 @@ export class MindMapSettingsTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName('Mobile action bar — vertical offset, keyboard visible (px)')
             .setDesc(
-                'Extra px above the keyboard top when it IS shown. 0 = exactly at keyboard ' +
-                'top. Negative values let the bar sit slightly over the keyboard\'s predictive ' +
-                'text strip. -50 to 200; default 0.',
+                'Px above the keyboard top when it IS shown. 0 = bar sits right at the ' +
+                'keyboard top (lowest visible position — anything lower would be hidden behind ' +
+                'the keyboard on iOS). 200 = lots of clearance above the keyboard. Default 100.',
             )
             .addText(text =>
                 text
-                    .setValue((this.plugin.settings.mobileBarOffsetWithKeyboard ?? 0).toString())
-                    .setPlaceholder('Example: 0')
+                    .setValue((this.plugin.settings.mobileBarOffsetWithKeyboard ?? 100).toString())
+                    .setPlaceholder('Example: 100')
                     .onChange((value: string) => {
                         var n = Number.parseInt(value);
                         if (isNaN(n)) return;
-                        this.plugin.settings.mobileBarOffsetWithKeyboard = Math.max(-50, Math.min(200, n));
+                        this.plugin.settings.mobileBarOffsetWithKeyboard = Math.max(0, Math.min(200, n));
                         this.plugin.saveData(this.plugin.settings);
                         const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
                         mindmapLeaves.forEach((leaf) => {

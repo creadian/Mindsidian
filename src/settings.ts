@@ -34,5 +34,8 @@ export class MindMapSettings {
     mobileActionBarSize: number = 56;
     mobileActionBarOpacity: number = 65;
     mobileBarOffsetNoKeyboard: number = 24;
-    mobileBarOffsetWithKeyboard: number = 0;
+    // Range 0-200 only. Negative values would place the bar behind the iOS
+    // keyboard which the WebView clips to invisible, so we don't allow them.
+    // 0 = bar at keyboard top (lowest visible); 200 = 200px above keyboard.
+    mobileBarOffsetWithKeyboard: number = 100;
 }

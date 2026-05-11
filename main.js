@@ -39434,7 +39434,7 @@ class MindMapView extends obsidian.TextFileView {
         var keyboardVisible = rawOffset > 50 || editingContentEditable;
         var bottom;
         if (keyboardVisible) {
-            var offWith = (_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 0;
+            var offWith = (_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 100;
             var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
             bottom = effectiveOffset + offWith;
         }
@@ -40153,19 +40153,19 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
         });
         new obsidian.Setting(containerEl)
             .setName('Mobile action bar — vertical offset, keyboard visible (px)')
-            .setDesc('Extra px above the keyboard top when it IS shown. 0 = exactly at keyboard ' +
-            'top. Negative values let the bar sit slightly over the keyboard\'s predictive ' +
-            'text strip. -50 to 200; default 0.')
+            .setDesc('Px above the keyboard top when it IS shown. 0 = bar sits right at the ' +
+            'keyboard top (lowest visible position — anything lower would be hidden behind ' +
+            'the keyboard on iOS). 200 = lots of clearance above the keyboard. Default 100.')
             .addText(text => {
             var _a;
             return text
-                .setValue(((_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 0).toString())
-                .setPlaceholder('Example: 0')
+                .setValue(((_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 100).toString())
+                .setPlaceholder('Example: 100')
                 .onChange((value) => {
                 var n = Number.parseInt(value);
                 if (isNaN(n))
                     return;
-                this.plugin.settings.mobileBarOffsetWithKeyboard = Math.max(-50, Math.min(200, n));
+                this.plugin.settings.mobileBarOffsetWithKeyboard = Math.max(0, Math.min(200, n));
                 this.plugin.saveData(this.plugin.settings);
                 const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
                 mindmapLeaves.forEach((leaf) => {

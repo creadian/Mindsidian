@@ -597,7 +597,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     var keyboardVisible = rawOffset > 50 || editingContentEditable;
     var bottom;
     if (keyboardVisible) {
-      var offWith = this.plugin.settings.mobileBarOffsetWithKeyboard ?? 0;
+      var offWith = this.plugin.settings.mobileBarOffsetWithKeyboard ?? 100;
       var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
       bottom = effectiveOffset + offWith;
     } else {
