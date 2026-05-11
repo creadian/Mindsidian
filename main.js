@@ -411,9 +411,11 @@ const basicFrontmatter = [
 ].join("\n");
 
 function keepLastIndex(dom) {
-    if (window.getSelection) { //ie11 10 9 ff safari
+    // Resolve to the DOM's own window so popout windows get their own selection.
+    var win = (dom.ownerDocument && dom.ownerDocument.defaultView) || window;
+    if (win.getSelection) { //ie11 10 9 ff safari
         dom.focus(); //ff
-        var range = window.getSelection();
+        var range = win.getSelection();
         range.selectAllChildren(dom);
         range.collapseToEnd();
     }
@@ -649,14 +651,11 @@ class Node$1 {
     }
     selectText() {
         var text = this.contentEl;
-        // if (document.body.createTextRange) {
-        //     var range = document.body.createTextRange();
-        //     range.moveToElementText(text);
-        //     range.select();
-        // }
-        if (window.getSelection) {
-            var selection = window.getSelection();
-            var range = document.createRange();
+        var doc = text.ownerDocument || document;
+        var win = doc.defaultView || window;
+        if (win.getSelection) {
+            var selection = win.getSelection();
+            var range = doc.createRange();
             range.selectNodeContents(text);
             selection.removeAllRanges();
             selection.addRange(range);
@@ -665,14 +664,16 @@ class Node$1 {
     insertText(i_str_1) {
         // Replace regular spaces with non-breaking spaces
         const formattedText = i_str_1.replace(/ /g, '\u00A0');
+        let doc = this.contentEl.ownerDocument || document;
+        let win = doc.defaultView || window;
         // Get selection and Create new text
-        let l_selection = window.getSelection();
+        let l_selection = win.getSelection();
         let l_selectedText = l_selection.toString();
         l_selectedText = formattedText + l_selectedText;
         // Create a new selection range
         let range = l_selection.getRangeAt(0);
         range.deleteContents();
-        let textNode = document.createTextNode(l_selectedText);
+        let textNode = doc.createTextNode(l_selectedText);
         range.insertNode(textNode);
         // Unselect modified text
         // l_selection.removeAllRanges();
@@ -685,8 +686,10 @@ class Node$1 {
     }
     setSelectedText(i_str_1, i_str_2, i_check, i_set_as_suffix, i_select_str) {
         let l_str_len = i_str_1.length;
+        let doc = this.contentEl.ownerDocument || document;
+        let win = doc.defaultView || window;
         // Get selection and Create new text
-        let l_selection = window.getSelection();
+        let l_selection = win.getSelection();
         let l_selectedText = l_selection.toString();
         // Remove leading space(s)
         let l_leadingSpace = false;
@@ -753,7 +756,7 @@ class Node$1 {
         // Create a new selection range
         let range = l_selection.getRangeAt(0);
         range.deleteContents();
-        let textNode = document.createTextNode(l_selectedText);
+        let textNode = doc.createTextNode(l_selectedText);
         range.insertNode(textNode);
         if (!i_select_str) {
             // Unselect modified text
@@ -767,8 +770,10 @@ class Node$1 {
         }
     }
     setSelectedText_italic() {
+        let doc = this.contentEl.ownerDocument || document;
+        let win = doc.defaultView || window;
         // Get selection and Create new text
-        let l_selection = window.getSelection();
+        let l_selection = win.getSelection();
         let l_selectedText = l_selection.toString();
         // Remove leading space(s)
         let l_leadingSpace = false;
@@ -820,7 +825,7 @@ class Node$1 {
         // Create a new selection range
         let range = l_selection.getRangeAt(0);
         range.deleteContents();
-        let textNode = document.createTextNode(l_selectedText);
+        let textNode = doc.createTextNode(l_selectedText);
         range.insertNode(textNode);
         // Unselect modified text
         //selection.removeAllRanges();
