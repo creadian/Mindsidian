@@ -572,37 +572,38 @@ export class MindMapView extends TextFileView implements HoverParent {
   }
 
   // Compute and apply the bar's `bottom` based on:
-  //   - whether the keyboard is visible (visualViewport.height shrunk OR a
-  //     node is currently being edited — the editing signal catches cases
-  //     where iOS doesn't fire visualViewport events on every keyboard show)
+  //   - keyboard visibility: vv.height shrunk OR an actually-focused
+  //     contentEditable inside a mindmap node (direct DOM read — doesn't
+  //     rely on mindmap.editNode, which the original plugin doesn't always
+  //     clear across edit-exit paths)
   //   - the user's two offset settings (no-keyboard vs with-keyboard)
   //   - the measured safe-area-inset-bottom (no-keyboard case only)
-  //   - a fallback estimated keyboard height when we know the user is
-  //     editing but visualViewport reports nothing (rare iOS WebView edge)
-  //
-  // Called on init, on visualViewport resize/scroll, on settings change,
-  // and on every poller tick (250ms) as a final safety net.
+  //   - fallback estimated keyboard height (270px iPhone portrait) when
+  //     contentEditable is focused but vv hasn't reported it
   updateMobileBarPosition() {
     if (!this._mobileActionBar) return;
     var vv: any = (window as any).visualViewport;
     var rawOffset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-    var editing = !!(this.mindmap && this.mindmap.editNode);
+    // Direct DOM check: the keyboard is up iff a contentEditable inside our
+    // mindmap is the currently-focused element. More reliable than
+    // mindmap.editNode (a JS reference that can go stale).
+    var doc = this.contentEl.ownerDocument || document;
+    var ae = doc.activeElement as HTMLElement | null;
+    var editingContentEditable = !!(
+      ae && (ae as any).isContentEditable &&
+      typeof ae.closest === 'function' && ae.closest('.mm-node-content')
+    );
     // 50px threshold distinguishes a real keyboard from minor viewport jitter.
-    var keyboardVisible = rawOffset > 50 || editing;
+    var keyboardVisible = rawOffset > 50 || editingContentEditable;
     var bottom;
     if (keyboardVisible) {
       var offWith = this.plugin.settings.mobileBarOffsetWithKeyboard ?? 0;
-      // Use vv data when available (most precise). If we only know the user
-      // is editing but vv doesn't show shrinkage, fall back to an estimated
-      // keyboard height (270px is typical iPhone portrait).
       var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
       bottom = effectiveOffset + offWith;
     } else {
       var offNo = this.plugin.settings.mobileBarOffsetNoKeyboard ?? 24;
       bottom = this._mobileSafeAreaBottom + offNo;
     }
-    // No CSS transition on bottom — visualViewport.resize fires at ~60fps
-    // during the keyboard animation, so direct updates track it 1:1.
     this._mobileActionBar.style.bottom = `${bottom}px`;
   }
 
