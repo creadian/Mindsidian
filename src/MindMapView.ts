@@ -688,6 +688,15 @@ export class MindMapView extends TextFileView implements HoverParent {
       }
 
       if (isBullet) {
+        // Strip chained "- " prefixes (e.g. "- - X" → "- X", "- - - X" → "- X").
+        // CommonMark would parse "- - X" as an empty outer bullet containing
+        // a nested "X" — that creates an empty intermediate node in the mindmap
+        // and pollutes the file with "Sub title" on save. Collapsing to one
+        // bullet at this line's original indent gives a single clean node.
+        while (/^- - /.test(trimmed)) {
+          trimmed = trimmed.replace(/^- /, '');
+        }
+
         // Fix orphaned indentation
         if (maxIndent === -1) {
           // First bullet after a heading — force to indent 0
