@@ -430,13 +430,13 @@ export class MindMapView extends TextFileView implements HoverParent {
   private _mobileActionBar: HTMLElement | null = null;
   private _mobileSiblingBtn: HTMLButtonElement | null = null;
   private _mobileChildBtn: HTMLButtonElement | null = null;
+  private _mobileTrashBtn: HTMLButtonElement | null = null;
   private _mobileRecenterBtn: HTMLButtonElement | null = null;
   private _mobileVVListener: (() => void) | null = null;
   private _mobileSelectionPoller: any = null;
-  // Resting distance from screen bottom in px (safe area + extra clearance).
-  // Measured once on init via a probe element so we can do positioning math
-  // in JS without re-reading env() at every keyboard event.
-  private _mobileBarBaseBottom: number = 24;
+  // Measured safe-area-inset-bottom in px. Captured once via a probe element
+  // so positioning math doesn't have to re-read env() on every event.
+  private _mobileSafeAreaBottom: number = 0;
 
   private initMobileActionBar() {
     var bar = document.createElement('div');
@@ -454,6 +454,15 @@ export class MindMapView extends TextFileView implements HoverParent {
     childBtn.innerHTML = '→';
     childBtn.setAttribute('aria-label', 'New child');
 
+    // Trash button — deletes the selected node. Replaces the per-node menu
+    // overlay which was awkward on mobile (covered new children, drifted
+    // during layout changes). Hidden on root (can't delete root).
+    var trashBtn = document.createElement('button');
+    trashBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-trash');
+    trashBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>';
+    trashBtn.setAttribute('aria-label', 'Delete node');
+
     // Recenter button (small, always visible)
     var recenterBtn = document.createElement('button');
     recenterBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-recenter');
@@ -462,6 +471,7 @@ export class MindMapView extends TextFileView implements HoverParent {
 
     bar.appendChild(siblingBtn);
     bar.appendChild(childBtn);
+    bar.appendChild(trashBtn);
     bar.appendChild(recenterBtn);
 
     // Prevent focus transfer from the editing contentEditable on desktop
@@ -474,9 +484,11 @@ export class MindMapView extends TextFileView implements HoverParent {
     var keepFocus = (e: Event) => { e.preventDefault(); };
     siblingBtn.addEventListener('mousedown', keepFocus);
     childBtn.addEventListener('mousedown', keepFocus);
+    trashBtn.addEventListener('mousedown', keepFocus);
 
     siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
     childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
+    trashBtn.addEventListener('click', () => this.handleMobileDeleteNode());
     recenterBtn.addEventListener('click', () => {
       if (this.mindmap) this.mindmap.center();
     });
@@ -486,21 +498,20 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileActionBar = bar;
     this._mobileSiblingBtn = siblingBtn;
     this._mobileChildBtn = childBtn;
+    this._mobileTrashBtn = trashBtn;
     this._mobileRecenterBtn = recenterBtn;
 
-    // Measure safe-area-inset-bottom once (via a hidden probe) and add a
-    // ~24px clearance on top. This is the bar's resting bottom edge.
+    // Measure safe-area-inset-bottom once (via a hidden probe). Position
+    // math in updateMobileBarPosition() combines this with the user's
+    // offset settings to compute the bar's actual `bottom`.
     var probe = document.createElement('div');
     probe.style.cssText = 'position:fixed;bottom:0;left:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;';
     document.body.appendChild(probe);
-    var safeArea = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+    this._mobileSafeAreaBottom = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
     document.body.removeChild(probe);
-    this._mobileBarBaseBottom = safeArea + 24;
-    bar.style.bottom = `${this._mobileBarBaseBottom}px`;
 
-    // Keyboard adaptation via visualViewport: set bar's bottom to
-    // max(baseBottom, keyboardOffset) so it sits just above the keyboard
-    // when shown and at its resting position when not.
+    // Initial position + keyboard adaptation via visualViewport.
+    this.updateMobileBarPosition();
     this.attachVisualViewportListener();
 
     // Selection-state poller: cheap (every 250ms, single class write when
@@ -521,21 +532,37 @@ export class MindMapView extends TextFileView implements HoverParent {
   private attachVisualViewportListener() {
     var vv: any = (window as any).visualViewport;
     if (!vv || !this._mobileActionBar) return;
-    var bar = this._mobileActionBar;
-    var update = () => {
-      var keyboardOffset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      // No CSS transition on bottom — visualViewport.resize fires at ~60fps
-      // during the keyboard animation, so direct bottom updates track it
-      // smoothly. A transition would cumulatively lag behind each event.
-      bar.style.bottom = `${Math.max(this._mobileBarBaseBottom, keyboardOffset)}px`;
-    };
-    update();
+    var update = () => this.updateMobileBarPosition();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
     this._mobileVVListener = () => {
       vv.removeEventListener('resize', update);
       vv.removeEventListener('scroll', update);
     };
+  }
+
+  // Compute and apply the bar's `bottom` based on:
+  //   - whether the keyboard is visible (visualViewport.height < innerHeight)
+  //   - the user's two offset settings (no-keyboard vs with-keyboard)
+  //   - the measured safe-area-inset-bottom (no-keyboard case only)
+  // Called on init, on visualViewport resize/scroll, and on settings change.
+  updateMobileBarPosition() {
+    if (!this._mobileActionBar) return;
+    var vv: any = (window as any).visualViewport;
+    // 50px threshold to distinguish keyboard from minor viewport fluctuations.
+    var keyboardOffset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    var keyboardVisible = keyboardOffset > 50;
+    var bottom;
+    if (keyboardVisible) {
+      var offWith = this.plugin.settings.mobileBarOffsetWithKeyboard ?? 0;
+      bottom = keyboardOffset + offWith;
+    } else {
+      var offNo = this.plugin.settings.mobileBarOffsetNoKeyboard ?? 24;
+      bottom = this._mobileSafeAreaBottom + offNo;
+    }
+    // No CSS transition on bottom — visualViewport.resize fires at ~60fps
+    // during the keyboard animation, so direct updates track it 1:1.
+    this._mobileActionBar.style.bottom = `${bottom}px`;
   }
 
   applyMobileActionBarStyle() {
@@ -549,15 +576,30 @@ export class MindMapView extends TextFileView implements HoverParent {
   private updateMobileActionBarVisibility() {
     if (!this._mobileActionBar) return;
     var sel = this.mindmap?.selectNode;
-    // Sibling: visible only when a non-root node is selected.
+    // Sibling + Trash: visible only when a non-root node is selected.
     if (this._mobileSiblingBtn) {
       this._mobileSiblingBtn.style.display = (sel && !sel.data.isRoot) ? '' : 'none';
     }
-    // Child: visible whenever any node is selected.
+    if (this._mobileTrashBtn) {
+      this._mobileTrashBtn.style.display = (sel && !sel.data.isRoot) ? '' : 'none';
+    }
+    // Child: visible whenever any node is selected (including root).
     if (this._mobileChildBtn) {
       this._mobileChildBtn.style.display = sel ? '' : 'none';
     }
     // Recenter is always visible (no display toggle needed).
+  }
+
+  private handleMobileDeleteNode() {
+    if (!this.mindmap) return;
+    var sel = this.mindmap.selectNode;
+    if (!sel || sel.data.isRoot) return;
+    // If currently editing the node we're about to delete, exit edit first.
+    if (this.mindmap.editNode) {
+      this.mindmap.editNode.cancelEdit();
+      this.mindmap.editNode = null;
+    }
+    this.mindmap.execute('deleteNodeAndChild', { node: sel });
   }
 
   private handleMobileAddNode(kind: 'sibling' | 'child') {
@@ -613,6 +655,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileActionBar = null;
     this._mobileSiblingBtn = null;
     this._mobileChildBtn = null;
+    this._mobileTrashBtn = null;
     this._mobileRecenterBtn = null;
   }
 

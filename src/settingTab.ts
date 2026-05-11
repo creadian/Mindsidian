@@ -242,6 +242,49 @@ export class MindMapSettingsTab extends PluginSettingTab {
                     }));
 
         new Setting(containerEl)
+            .setName('Mobile action bar — vertical offset, no keyboard (px)')
+            .setDesc(
+                'Extra px above the safe-area at the bottom of the screen when the keyboard ' +
+                'is NOT shown. 0-200; default 24.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.mobileBarOffsetNoKeyboard ?? 24).toString())
+                    .setPlaceholder('Example: 24')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.mobileBarOffsetNoKeyboard = Math.max(0, Math.min(200, n));
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            (leaf.view as MindMapView).updateMobileBarPosition?.();
+                        });
+                    }));
+
+        new Setting(containerEl)
+            .setName('Mobile action bar — vertical offset, keyboard visible (px)')
+            .setDesc(
+                'Extra px above the keyboard top when it IS shown. 0 = exactly at keyboard ' +
+                'top. Negative values let the bar sit slightly over the keyboard\'s predictive ' +
+                'text strip. -50 to 200; default 0.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.mobileBarOffsetWithKeyboard ?? 0).toString())
+                    .setPlaceholder('Example: 0')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.mobileBarOffsetWithKeyboard = Math.max(-50, Math.min(200, n));
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            (leaf.view as MindMapView).updateMobileBarPosition?.();
+                        });
+                    }));
+
+        new Setting(containerEl)
             .setName('Fold state persistence')
             .setDesc(
                 'How to remember which branches you collapsed across reloads. ' +

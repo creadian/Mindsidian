@@ -25,8 +25,14 @@ export class MindMapSettings {
     // Default zoom (%) used when a mindmap file has no `mindmap-zoom`
     // value in its frontmatter. Per-file zoom is saved on view close.
     defaultZoom: number = 100;
-    // Mobile-only action bar (sibling / child / recenter at bottom of screen).
+    // Mobile-only action bar (sibling / child / trash / recenter at bottom).
     // Size = button diameter in px (24-100). Opacity = idle opacity (10-100 %).
+    // Offset settings (px) tune the bar's vertical position relative to its
+    // resting anchor: noKeyboard is added to safe-area-inset-bottom, and
+    // withKeyboard is added to the keyboard-top offset (negative values
+    // allowed if the user wants the bar to overlap the predictive bar).
     mobileActionBarSize: number = 56;
     mobileActionBarOpacity: number = 65;
+    mobileBarOffsetNoKeyboard: number = 24;
+    mobileBarOffsetWithKeyboard: number = 0;
 }

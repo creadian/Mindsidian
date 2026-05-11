@@ -39238,13 +39238,13 @@ class MindMapView extends obsidian.TextFileView {
         this._mobileActionBar = null;
         this._mobileSiblingBtn = null;
         this._mobileChildBtn = null;
+        this._mobileTrashBtn = null;
         this._mobileRecenterBtn = null;
         this._mobileVVListener = null;
         this._mobileSelectionPoller = null;
-        // Resting distance from screen bottom in px (safe area + extra clearance).
-        // Measured once on init via a probe element so we can do positioning math
-        // in JS without re-reading env() at every keyboard event.
-        this._mobileBarBaseBottom = 24;
+        // Measured safe-area-inset-bottom in px. Captured once via a probe element
+        // so positioning math doesn't have to re-read env() on every event.
+        this._mobileSafeAreaBottom = 0;
         this.plugin = plugin;
         this.setColors();
         this.fileCache = {
@@ -39301,6 +39301,14 @@ class MindMapView extends obsidian.TextFileView {
         childBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-child');
         childBtn.innerHTML = '→';
         childBtn.setAttribute('aria-label', 'New child');
+        // Trash button — deletes the selected node. Replaces the per-node menu
+        // overlay which was awkward on mobile (covered new children, drifted
+        // during layout changes). Hidden on root (can't delete root).
+        var trashBtn = document.createElement('button');
+        trashBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-trash');
+        trashBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>';
+        trashBtn.setAttribute('aria-label', 'Delete node');
         // Recenter button (small, always visible)
         var recenterBtn = document.createElement('button');
         recenterBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-recenter');
@@ -39308,6 +39316,7 @@ class MindMapView extends obsidian.TextFileView {
         recenterBtn.setAttribute('aria-label', 'Center mindmap');
         bar.appendChild(siblingBtn);
         bar.appendChild(childBtn);
+        bar.appendChild(trashBtn);
         bar.appendChild(recenterBtn);
         // Prevent focus transfer from the editing contentEditable on desktop
         // mousedown. NOT on touchstart — iOS uses touchstart→touchend to
@@ -39319,8 +39328,10 @@ class MindMapView extends obsidian.TextFileView {
         var keepFocus = (e) => { e.preventDefault(); };
         siblingBtn.addEventListener('mousedown', keepFocus);
         childBtn.addEventListener('mousedown', keepFocus);
+        trashBtn.addEventListener('mousedown', keepFocus);
         siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
         childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
+        trashBtn.addEventListener('click', () => this.handleMobileDeleteNode());
         recenterBtn.addEventListener('click', () => {
             if (this.mindmap)
                 this.mindmap.center();
@@ -39329,19 +39340,18 @@ class MindMapView extends obsidian.TextFileView {
         this._mobileActionBar = bar;
         this._mobileSiblingBtn = siblingBtn;
         this._mobileChildBtn = childBtn;
+        this._mobileTrashBtn = trashBtn;
         this._mobileRecenterBtn = recenterBtn;
-        // Measure safe-area-inset-bottom once (via a hidden probe) and add a
-        // ~24px clearance on top. This is the bar's resting bottom edge.
+        // Measure safe-area-inset-bottom once (via a hidden probe). Position
+        // math in updateMobileBarPosition() combines this with the user's
+        // offset settings to compute the bar's actual `bottom`.
         var probe = document.createElement('div');
         probe.style.cssText = 'position:fixed;bottom:0;left:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;';
         document.body.appendChild(probe);
-        var safeArea = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+        this._mobileSafeAreaBottom = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
         document.body.removeChild(probe);
-        this._mobileBarBaseBottom = safeArea + 24;
-        bar.style.bottom = `${this._mobileBarBaseBottom}px`;
-        // Keyboard adaptation via visualViewport: set bar's bottom to
-        // max(baseBottom, keyboardOffset) so it sits just above the keyboard
-        // when shown and at its resting position when not.
+        // Initial position + keyboard adaptation via visualViewport.
+        this.updateMobileBarPosition();
         this.attachVisualViewportListener();
         // Selection-state poller: cheap (every 250ms, single class write when
         // state changes). Catches every code path that mutates selectNode
@@ -39362,21 +39372,39 @@ class MindMapView extends obsidian.TextFileView {
         var vv = window.visualViewport;
         if (!vv || !this._mobileActionBar)
             return;
-        var bar = this._mobileActionBar;
-        var update = () => {
-            var keyboardOffset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-            // No CSS transition on bottom — visualViewport.resize fires at ~60fps
-            // during the keyboard animation, so direct bottom updates track it
-            // smoothly. A transition would cumulatively lag behind each event.
-            bar.style.bottom = `${Math.max(this._mobileBarBaseBottom, keyboardOffset)}px`;
-        };
-        update();
+        var update = () => this.updateMobileBarPosition();
         vv.addEventListener('resize', update);
         vv.addEventListener('scroll', update);
         this._mobileVVListener = () => {
             vv.removeEventListener('resize', update);
             vv.removeEventListener('scroll', update);
         };
+    }
+    // Compute and apply the bar's `bottom` based on:
+    //   - whether the keyboard is visible (visualViewport.height < innerHeight)
+    //   - the user's two offset settings (no-keyboard vs with-keyboard)
+    //   - the measured safe-area-inset-bottom (no-keyboard case only)
+    // Called on init, on visualViewport resize/scroll, and on settings change.
+    updateMobileBarPosition() {
+        var _a, _b;
+        if (!this._mobileActionBar)
+            return;
+        var vv = window.visualViewport;
+        // 50px threshold to distinguish keyboard from minor viewport fluctuations.
+        var keyboardOffset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+        var keyboardVisible = keyboardOffset > 50;
+        var bottom;
+        if (keyboardVisible) {
+            var offWith = (_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 0;
+            bottom = keyboardOffset + offWith;
+        }
+        else {
+            var offNo = (_b = this.plugin.settings.mobileBarOffsetNoKeyboard) !== null && _b !== void 0 ? _b : 24;
+            bottom = this._mobileSafeAreaBottom + offNo;
+        }
+        // No CSS transition on bottom — visualViewport.resize fires at ~60fps
+        // during the keyboard animation, so direct updates track it 1:1.
+        this._mobileActionBar.style.bottom = `${bottom}px`;
     }
     applyMobileActionBarStyle() {
         var _a, _b;
@@ -39392,15 +39420,31 @@ class MindMapView extends obsidian.TextFileView {
         if (!this._mobileActionBar)
             return;
         var sel = (_a = this.mindmap) === null || _a === void 0 ? void 0 : _a.selectNode;
-        // Sibling: visible only when a non-root node is selected.
+        // Sibling + Trash: visible only when a non-root node is selected.
         if (this._mobileSiblingBtn) {
             this._mobileSiblingBtn.style.display = (sel && !sel.data.isRoot) ? '' : 'none';
         }
-        // Child: visible whenever any node is selected.
+        if (this._mobileTrashBtn) {
+            this._mobileTrashBtn.style.display = (sel && !sel.data.isRoot) ? '' : 'none';
+        }
+        // Child: visible whenever any node is selected (including root).
         if (this._mobileChildBtn) {
             this._mobileChildBtn.style.display = sel ? '' : 'none';
         }
         // Recenter is always visible (no display toggle needed).
+    }
+    handleMobileDeleteNode() {
+        if (!this.mindmap)
+            return;
+        var sel = this.mindmap.selectNode;
+        if (!sel || sel.data.isRoot)
+            return;
+        // If currently editing the node we're about to delete, exit edit first.
+        if (this.mindmap.editNode) {
+            this.mindmap.editNode.cancelEdit();
+            this.mindmap.editNode = null;
+        }
+        this.mindmap.execute('deleteNodeAndChild', { node: sel });
     }
     handleMobileAddNode(kind) {
         if (!this.mindmap)
@@ -39450,6 +39494,7 @@ class MindMapView extends obsidian.TextFileView {
         this._mobileActionBar = null;
         this._mobileSiblingBtn = null;
         this._mobileChildBtn = null;
+        this._mobileTrashBtn = null;
         this._mobileRecenterBtn = null;
     }
     onClose() {
@@ -40027,6 +40072,51 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
                 mindmapLeaves.forEach((leaf) => {
                     var _a, _b;
                     (_b = (_a = leaf.view).applyMobileActionBarStyle) === null || _b === void 0 ? void 0 : _b.call(_a);
+                });
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName('Mobile action bar — vertical offset, no keyboard (px)')
+            .setDesc('Extra px above the safe-area at the bottom of the screen when the keyboard ' +
+            'is NOT shown. 0-200; default 24.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.mobileBarOffsetNoKeyboard) !== null && _a !== void 0 ? _a : 24).toString())
+                .setPlaceholder('Example: 24')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.mobileBarOffsetNoKeyboard = Math.max(0, Math.min(200, n));
+                this.plugin.saveData(this.plugin.settings);
+                const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                mindmapLeaves.forEach((leaf) => {
+                    var _a, _b;
+                    (_b = (_a = leaf.view).updateMobileBarPosition) === null || _b === void 0 ? void 0 : _b.call(_a);
+                });
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName('Mobile action bar — vertical offset, keyboard visible (px)')
+            .setDesc('Extra px above the keyboard top when it IS shown. 0 = exactly at keyboard ' +
+            'top. Negative values let the bar sit slightly over the keyboard\'s predictive ' +
+            'text strip. -50 to 200; default 0.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 0).toString())
+                .setPlaceholder('Example: 0')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.mobileBarOffsetWithKeyboard = Math.max(-50, Math.min(200, n));
+                this.plugin.saveData(this.plugin.settings);
+                const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                mindmapLeaves.forEach((leaf) => {
+                    var _a, _b;
+                    (_b = (_a = leaf.view).updateMobileBarPosition) === null || _b === void 0 ? void 0 : _b.call(_a);
                 });
             });
         });
