@@ -8193,7 +8193,7 @@ class MindMap {
         document.addEventListener('compositionstart', this.compositionStart);
         document.addEventListener('compositionend', this.compositionEnd);
         if (obsidian.Platform.isDesktop) {
-            document.body.addEventListener('mousewheel', this.appMousewheel);
+            this.containerEL.addEventListener('wheel', this.appMousewheel, { passive: false });
             this.containerEL.addEventListener('wheel', this.appContainerWheel, { passive: false });
             this.appEl.addEventListener('mousedown', this.appMouseDown);
             this.appEl.addEventListener('mouseup', this.appMouseUp);
@@ -8232,7 +8232,7 @@ class MindMap {
         document.removeEventListener('compositionstart', this.compositionStart);
         document.removeEventListener('compositionend', this.compositionEnd);
         if (obsidian.Platform.isDesktop) {
-            document.body.removeEventListener('mousewheel', this.appMousewheel);
+            this.containerEL.removeEventListener('wheel', this.appMousewheel);
             this.containerEL.removeEventListener('wheel', this.appContainerWheel);
             this.appEl.removeEventListener('mousedown', this.appMouseDown);
             this.appEl.removeEventListener('mouseup', this.appMouseUp);
