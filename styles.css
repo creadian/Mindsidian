@@ -371,6 +371,8 @@
 
 .mm-mobile-action-sibling,
 .mm-mobile-action-child,
+.mm-mobile-action-undo,
+.mm-mobile-action-redo,
 .mm-mobile-action-trash {
   width: var(--mm-action-btn-size, 56px);
   height: var(--mm-action-btn-size, 56px);
@@ -378,6 +380,11 @@
 }
 
 .mm-mobile-action-trash {
+  color: var(--text-muted, #888);
+}
+
+.mm-mobile-action-undo,
+.mm-mobile-action-redo {
   color: var(--text-muted, #888);
 }
 

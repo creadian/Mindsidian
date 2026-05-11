@@ -430,6 +430,8 @@ export class MindMapView extends TextFileView implements HoverParent {
   private _mobileActionBar: HTMLElement | null = null;
   private _mobileSiblingBtn: HTMLButtonElement | null = null;
   private _mobileChildBtn: HTMLButtonElement | null = null;
+  private _mobileUndoBtn: HTMLButtonElement | null = null;
+  private _mobileRedoBtn: HTMLButtonElement | null = null;
   private _mobileTrashBtn: HTMLButtonElement | null = null;
   private _mobileRecenterBtn: HTMLButtonElement | null = null;
   private _mobileVVListener: (() => void) | null = null;
@@ -454,6 +456,20 @@ export class MindMapView extends TextFileView implements HoverParent {
     childBtn.innerHTML = '→';
     childBtn.setAttribute('aria-label', 'New child');
 
+    // Undo / Redo buttons. Document-wide operations, always available on
+    // mobile (don't require a selected node).
+    var undoBtn = document.createElement('button');
+    undoBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-undo');
+    undoBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 0 1 0 10h-4"></path></svg>';
+    undoBtn.setAttribute('aria-label', 'Undo');
+
+    var redoBtn = document.createElement('button');
+    redoBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-redo');
+    redoBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"></path><path d="M20 9H9a5 5 0 0 0 0 10h4"></path></svg>';
+    redoBtn.setAttribute('aria-label', 'Redo');
+
     // Trash button — deletes the selected node. Replaces the per-node menu
     // overlay which was awkward on mobile (covered new children, drifted
     // during layout changes). Hidden on root (can't delete root).
@@ -471,6 +487,8 @@ export class MindMapView extends TextFileView implements HoverParent {
 
     bar.appendChild(siblingBtn);
     bar.appendChild(childBtn);
+    bar.appendChild(undoBtn);
+    bar.appendChild(redoBtn);
     bar.appendChild(trashBtn);
     bar.appendChild(recenterBtn);
 
@@ -484,10 +502,14 @@ export class MindMapView extends TextFileView implements HoverParent {
     var keepFocus = (e: Event) => { e.preventDefault(); };
     siblingBtn.addEventListener('mousedown', keepFocus);
     childBtn.addEventListener('mousedown', keepFocus);
+    undoBtn.addEventListener('mousedown', keepFocus);
+    redoBtn.addEventListener('mousedown', keepFocus);
     trashBtn.addEventListener('mousedown', keepFocus);
 
     siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
     childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
+    undoBtn.addEventListener('click', () => this.handleMobileUndoRedo('undo'));
+    redoBtn.addEventListener('click', () => this.handleMobileUndoRedo('redo'));
     trashBtn.addEventListener('click', () => this.handleMobileDeleteNode());
     recenterBtn.addEventListener('click', () => {
       if (this.mindmap) this.mindmap.center();
@@ -498,6 +520,8 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileActionBar = bar;
     this._mobileSiblingBtn = siblingBtn;
     this._mobileChildBtn = childBtn;
+    this._mobileUndoBtn = undoBtn;
+    this._mobileRedoBtn = redoBtn;
     this._mobileTrashBtn = trashBtn;
     this._mobileRecenterBtn = recenterBtn;
 
@@ -602,6 +626,18 @@ export class MindMapView extends TextFileView implements HoverParent {
     this.mindmap.execute('deleteNodeAndChild', { node: sel });
   }
 
+  private handleMobileUndoRedo(kind: 'undo' | 'redo') {
+    if (!this.mindmap) return;
+    // Commit any pending edit text first so undo/redo operates on a stable
+    // tree (otherwise the in-flight edit could be lost).
+    if (this.mindmap.editNode) {
+      this.mindmap.editNode.cancelEdit();
+      this.mindmap.editNode = null;
+    }
+    if (kind === 'undo') this.mindmap.undo();
+    else this.mindmap.redo();
+  }
+
   private handleMobileAddNode(kind: 'sibling' | 'child') {
     if (!this.mindmap) return;
     var sel = this.mindmap.selectNode;
@@ -655,6 +691,8 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileActionBar = null;
     this._mobileSiblingBtn = null;
     this._mobileChildBtn = null;
+    this._mobileUndoBtn = null;
+    this._mobileRedoBtn = null;
     this._mobileTrashBtn = null;
     this._mobileRecenterBtn = null;
   }
