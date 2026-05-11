@@ -319,6 +319,76 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
+/* On mobile, the standalone recenter button is replaced by the one inside
+   the bottom action bar — hide it to avoid the duplicate. */
+.is-mobile .mm-recenter-btn {
+  display: none;
+}
+
+/* --- Mobile bottom action bar ----------------------------------------------
+   Created by MindMapView.initMobileActionBar() on Platform.isMobile only.
+   Holds + sibling (↩), + child (→), and recenter (⌖) buttons. Translated
+   above the keyboard via visualViewport tracking in JS. */
+.mm-mobile-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: env(safe-area-inset-bottom, 0);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 8px 16px 8px 16px;
+  z-index: 100;
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+
+.mm-mobile-action-btn {
+  pointer-events: auto;
+  border: 1px solid var(--background-modifier-border, #e0e0e0);
+  background: var(--background-primary, #fff);
+  color: var(--text-normal, #222);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-weight: 600;
+  opacity: var(--mm-action-btn-opacity, 0.65);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.mm-mobile-action-btn:active {
+  opacity: 1;
+  transform: scale(0.94);
+}
+
+.mm-mobile-action-sibling,
+.mm-mobile-action-child {
+  width: var(--mm-action-btn-size, 56px);
+  height: var(--mm-action-btn-size, 56px);
+  font-size: calc(var(--mm-action-btn-size, 56px) * 0.5);
+}
+
+/* Recenter stays small per design — fixed 36px regardless of the size
+   setting. Pushed to the right edge of the bar. */
+.mm-mobile-action-recenter {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+  margin-left: auto;
+}
+
+.theme-dark .mm-mobile-action-btn {
+  background: var(--background-primary, #1e1e2e);
+  border-color: var(--background-modifier-border, #333);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  color: var(--text-normal, #ddd);
+}
+
 /* Invisible tap target around fold dots — constant size regardless of zoom */
 .mm-node-bar::after {
   content: '';

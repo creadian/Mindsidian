@@ -9150,6 +9150,13 @@ class MindMap {
                 if (targetEl.closest('.mm-icon-add-node')) {
                     var selectNode = this.selectNode;
                     if (selectNode) {
+                        // Expand a folded parent BEFORE adding a child — otherwise
+                        // the new node's layout slot isn't computed (the subtree is
+                        // collapsed) and it renders at canvas (0,0). Mirrors the
+                        // keyboard Tab handler.
+                        if (!selectNode.isExpand) {
+                            selectNode.expand();
+                        }
                         selectNode.mindmap.execute("addChildNode", { parent: selectNode });
                         this._menuDom.style.display = 'none';
                     }
@@ -39223,6 +39230,17 @@ class MindMapView extends obsidian.TextFileView {
         this.timeOut = null;
         this.firstInit = true;
         this.yamlString = '';
+        // --- Mobile bottom action bar ---------------------------------------------
+        // Holds "+ sibling" (↩), "+ child" (→), and recenter (⌖) buttons. Built once
+        // per view (Platform.isMobile only). Stays above the keyboard via
+        // visualViewport tracking. Sibling button is hidden when the root is
+        // selected; sibling+child are hidden when no node is selected.
+        this._mobileActionBar = null;
+        this._mobileSiblingBtn = null;
+        this._mobileChildBtn = null;
+        this._mobileRecenterBtn = null;
+        this._mobileVVListener = null;
+        this._mobileSelectionPoller = null;
         this.plugin = plugin;
         this.setColors();
         this.fileCache = {
@@ -39266,12 +39284,164 @@ class MindMapView extends obsidian.TextFileView {
             console.error('Mindsidian: failed to save mindmap-zoom to frontmatter', err);
         });
     }
+    initMobileActionBar() {
+        var bar = document.createElement('div');
+        bar.classList.add('mm-mobile-action-bar');
+        // Sibling button (↩ = adds at same level)
+        var siblingBtn = document.createElement('button');
+        siblingBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-sibling');
+        siblingBtn.innerHTML = '↩';
+        siblingBtn.setAttribute('aria-label', 'New sibling');
+        // Child button (→ = adds one level deeper)
+        var childBtn = document.createElement('button');
+        childBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-child');
+        childBtn.innerHTML = '→';
+        childBtn.setAttribute('aria-label', 'New child');
+        // Recenter button (small, always visible)
+        var recenterBtn = document.createElement('button');
+        recenterBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-recenter');
+        recenterBtn.innerHTML = '⌖';
+        recenterBtn.setAttribute('aria-label', 'Center mindmap');
+        bar.appendChild(siblingBtn);
+        bar.appendChild(childBtn);
+        bar.appendChild(recenterBtn);
+        // CRITICAL for Option-A chained editing: prevent focus loss from the
+        // editing contentEditable when the user taps a button. Without this,
+        // tapping the button blurs the input → iOS dismisses the keyboard →
+        // we refocus the new node → keyboard re-appears (flicker).
+        var keepFocus = (e) => { e.preventDefault(); };
+        siblingBtn.addEventListener('mousedown', keepFocus);
+        siblingBtn.addEventListener('touchstart', keepFocus, { passive: false });
+        childBtn.addEventListener('mousedown', keepFocus);
+        childBtn.addEventListener('touchstart', keepFocus, { passive: false });
+        siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
+        childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
+        recenterBtn.addEventListener('click', () => {
+            if (this.mindmap)
+                this.mindmap.center();
+        });
+        this.contentEl.appendChild(bar);
+        this._mobileActionBar = bar;
+        this._mobileSiblingBtn = siblingBtn;
+        this._mobileChildBtn = childBtn;
+        this._mobileRecenterBtn = recenterBtn;
+        // Keyboard adaptation: when iOS shows the keyboard, visualViewport.height
+        // shrinks. We translate the bar up by (window.innerHeight - vv.height -
+        // vv.offsetTop) so it sits just above the keyboard.
+        this.attachVisualViewportListener();
+        // Selection-state poller: cheap (every 250ms, single class write when
+        // state changes). Catches every code path that mutates selectNode
+        // without us needing to hook each one.
+        var lastSig = '';
+        this._mobileSelectionPoller = setInterval(() => {
+            if (!this.mindmap || !this._mobileActionBar)
+                return;
+            var sel = this.mindmap.selectNode;
+            var sig = sel ? (sel.getId() + ':' + (sel.data.isRoot ? '1' : '0')) : '';
+            if (sig !== lastSig) {
+                lastSig = sig;
+                this.updateMobileActionBarVisibility();
+            }
+        }, 250);
+    }
+    attachVisualViewportListener() {
+        var vv = window.visualViewport;
+        if (!vv || !this._mobileActionBar)
+            return;
+        var bar = this._mobileActionBar;
+        var update = () => {
+            var keyboardOffset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+            bar.style.transform = `translateY(-${keyboardOffset}px)`;
+        };
+        update();
+        vv.addEventListener('resize', update);
+        vv.addEventListener('scroll', update);
+        this._mobileVVListener = () => {
+            vv.removeEventListener('resize', update);
+            vv.removeEventListener('scroll', update);
+        };
+    }
+    applyMobileActionBarStyle() {
+        var _a, _b;
+        if (!this._mobileActionBar)
+            return;
+        var size = Math.max(24, Math.min(100, (_a = this.plugin.settings.mobileActionBarSize) !== null && _a !== void 0 ? _a : 56));
+        var opacityPct = Math.max(10, Math.min(100, (_b = this.plugin.settings.mobileActionBarOpacity) !== null && _b !== void 0 ? _b : 65));
+        this._mobileActionBar.style.setProperty('--mm-action-btn-size', `${size}px`);
+        this._mobileActionBar.style.setProperty('--mm-action-btn-opacity', `${opacityPct / 100}`);
+    }
+    updateMobileActionBarVisibility() {
+        var _a;
+        if (!this._mobileActionBar)
+            return;
+        var sel = (_a = this.mindmap) === null || _a === void 0 ? void 0 : _a.selectNode;
+        // Sibling: visible only when a non-root node is selected.
+        if (this._mobileSiblingBtn) {
+            this._mobileSiblingBtn.style.display = (sel && !sel.data.isRoot) ? '' : 'none';
+        }
+        // Child: visible whenever any node is selected.
+        if (this._mobileChildBtn) {
+            this._mobileChildBtn.style.display = sel ? '' : 'none';
+        }
+        // Recenter is always visible (no display toggle needed).
+    }
+    handleMobileAddNode(kind) {
+        if (!this.mindmap)
+            return;
+        var sel = this.mindmap.selectNode;
+        if (!sel)
+            return;
+        // If currently editing, commit the text first so it doesn't get lost.
+        if (this.mindmap.editNode) {
+            this.mindmap.editNode.cancelEdit();
+            this.mindmap.editNode = null;
+        }
+        var parent;
+        if (kind === 'child') {
+            parent = sel;
+            // Expand a folded parent before adding (same fix as v0.5.11).
+            if (!sel.isExpand) {
+                sel.expand();
+            }
+        }
+        else {
+            parent = sel.parent;
+            if (!parent)
+                return; // root has no parent → no sibling possible
+        }
+        var newNode = this.mindmap.execute(kind === 'child' ? 'addChildNode' : 'addSiblingNode', { parent });
+        this.mindmap.refresh();
+        if (newNode) {
+            newNode.select();
+            // Enter edit mode synchronously in the same user-gesture so iOS
+            // accepts the focus transfer and the keyboard stays up.
+            newNode.edit();
+        }
+    }
+    teardownMobileActionBar() {
+        if (this._mobileSelectionPoller) {
+            clearInterval(this._mobileSelectionPoller);
+            this._mobileSelectionPoller = null;
+        }
+        if (this._mobileVVListener) {
+            this._mobileVVListener();
+            this._mobileVVListener = null;
+        }
+        if (this._mobileActionBar && this._mobileActionBar.parentNode) {
+            this._mobileActionBar.parentNode.removeChild(this._mobileActionBar);
+        }
+        this._mobileActionBar = null;
+        this._mobileSiblingBtn = null;
+        this._mobileChildBtn = null;
+        this._mobileRecenterBtn = null;
+    }
     onClose() {
         return __awaiter(this, void 0, void 0, function* () {
             // Persist current zoom to frontmatter BEFORE resetting it.
             if (this.mindmap) {
                 this.saveZoomToFrontmatter(this.mindmap.mindScale);
             }
+            this.teardownMobileActionBar();
             // Reset zoom/touch state before clearing — guards against state leaking
             // into the next instance if the same file is reopened (Cmd+W bug).
             if (this.mindmap) {
@@ -39321,7 +39491,8 @@ class MindMapView extends obsidian.TextFileView {
         // }
         this.mindmap = new MindMap(mindData, this.contentEl, this.plugin.settings);
         this.mindmap.colors = this.colors;
-        // Add floating recenter button
+        // Add floating recenter button (desktop only — on mobile it lives
+        // inside the bottom action bar created below).
         if (!this.contentEl.querySelector('.mm-recenter-btn')) {
             var recenterBtn = document.createElement('button');
             recenterBtn.classList.add('mm-recenter-btn');
@@ -39334,6 +39505,12 @@ class MindMapView extends obsidian.TextFileView {
             });
             this.contentEl.appendChild(recenterBtn);
         }
+        // Mobile-only bottom action bar with "+ sibling" (↩), "+ child" (→),
+        // and recenter (⌖). Visibility is managed in initMobileActionBar().
+        if (obsidian.Platform.isMobile && !this.contentEl.querySelector('.mm-mobile-action-bar')) {
+            this.initMobileActionBar();
+        }
+        this.applyMobileActionBarStyle();
         if (this.firstInit) {
             setTimeout(() => {
                 var leaf = this.leaf;
@@ -39379,6 +39556,7 @@ class MindMapView extends obsidian.TextFileView {
         if (this.mindmap) {
             this.saveZoomToFrontmatter(this.mindmap.mindScale);
         }
+        this.teardownMobileActionBar();
         if (this.mindmap) {
             this.mindmap.mindScale = 100;
             this.mindmap.scalePointer = [];
@@ -39789,6 +39967,50 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
                     return;
                 this.plugin.settings.defaultZoom = Math.max(20, Math.min(300, n));
                 this.plugin.saveData(this.plugin.settings);
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName('Mobile action bar — button size (px)')
+            .setDesc('Diameter in px of the "+ Sibling" and "+ Child" buttons at the bottom ' +
+            'of the screen on mobile. The recenter button stays a fixed small size.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.mobileActionBarSize) !== null && _a !== void 0 ? _a : 56).toString())
+                .setPlaceholder('Example: 56')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.mobileActionBarSize = Math.max(24, Math.min(100, n));
+                this.plugin.saveData(this.plugin.settings);
+                const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                mindmapLeaves.forEach((leaf) => {
+                    var _a, _b;
+                    (_b = (_a = leaf.view).applyMobileActionBarStyle) === null || _b === void 0 ? void 0 : _b.call(_a);
+                });
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName('Mobile action bar — idle opacity (%)')
+            .setDesc('Idle opacity (10-100) of the mobile action bar buttons. They become fully ' +
+            'opaque when pressed.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.mobileActionBarOpacity) !== null && _a !== void 0 ? _a : 65).toString())
+                .setPlaceholder('Example: 65')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.mobileActionBarOpacity = Math.max(10, Math.min(100, n));
+                this.plugin.saveData(this.plugin.settings);
+                const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                mindmapLeaves.forEach((leaf) => {
+                    var _a, _b;
+                    (_b = (_a = leaf.view).applyMobileActionBarStyle) === null || _b === void 0 ? void 0 : _b.call(_a);
+                });
             });
         });
         new obsidian.Setting(containerEl)

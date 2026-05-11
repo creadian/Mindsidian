@@ -1629,6 +1629,13 @@ export default class MindMap {
                  if(targetEl.closest('.mm-icon-add-node')){
                       var selectNode = this.selectNode;
                       if(selectNode){
+                         // Expand a folded parent BEFORE adding a child — otherwise
+                         // the new node's layout slot isn't computed (the subtree is
+                         // collapsed) and it renders at canvas (0,0). Mirrors the
+                         // keyboard Tab handler.
+                         if (!selectNode.isExpand) {
+                             selectNode.expand();
+                         }
                          selectNode.mindmap.execute("addChildNode", { parent: selectNode });
                          this._menuDom.style.display='none';
                       }

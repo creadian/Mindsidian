@@ -25,4 +25,8 @@ export class MindMapSettings {
     // Default zoom (%) used when a mindmap file has no `mindmap-zoom`
     // value in its frontmatter. Per-file zoom is saved on view close.
     defaultZoom: number = 100;
+    // Mobile-only action bar (sibling / child / recenter at bottom of screen).
+    // Size = button diameter in px (24-100). Opacity = idle opacity (10-100 %).
+    mobileActionBarSize: number = 56;
+    mobileActionBarOpacity: number = 65;
 }

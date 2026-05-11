@@ -200,6 +200,48 @@ export class MindMapSettingsTab extends PluginSettingTab {
                     }));
 
         new Setting(containerEl)
+            .setName('Mobile action bar — button size (px)')
+            .setDesc(
+                'Diameter in px of the "+ Sibling" and "+ Child" buttons at the bottom ' +
+                'of the screen on mobile. The recenter button stays a fixed small size.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.mobileActionBarSize ?? 56).toString())
+                    .setPlaceholder('Example: 56')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.mobileActionBarSize = Math.max(24, Math.min(100, n));
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            (leaf.view as MindMapView).applyMobileActionBarStyle?.();
+                        });
+                    }));
+
+        new Setting(containerEl)
+            .setName('Mobile action bar — idle opacity (%)')
+            .setDesc(
+                'Idle opacity (10-100) of the mobile action bar buttons. They become fully ' +
+                'opaque when pressed.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.mobileActionBarOpacity ?? 65).toString())
+                    .setPlaceholder('Example: 65')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.mobileActionBarOpacity = Math.max(10, Math.min(100, n));
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            (leaf.view as MindMapView).applyMobileActionBarStyle?.();
+                        });
+                    }));
+
+        new Setting(containerEl)
             .setName('Fold state persistence')
             .setDesc(
                 'How to remember which branches you collapsed across reloads. ' +
