@@ -8897,8 +8897,25 @@ class MindMap {
         this.isFocused = false;
     }
     appKeydown(e) {
-        if (!this.isFocused)
-            return; // Check if Mindmap is in focus or not
+        if (!this.isFocused) {
+            // Fallback: appFocusIn has a 100ms setTimeout before flipping
+            // isFocused back to true. After cancelEdit briefly blurs
+            // contentEl (the browser focuses <body> momentarily when
+            // contentEditable is removed) and node.select() then re-focuses
+            // containEl, isFocused stays false for ~100ms. Rapid second
+            // keypresses (Enter/Tab to add a sibling/child immediately
+            // after Enter/Tab to commit edit) fall inside that window and
+            // are silently dropped at this guard.
+            //
+            // Check the live DOM focus state too: if focus is already
+            // inside our container, treat as focused regardless of the
+            // cached isFocused. Diagnosed via [PROF2] instrumentation
+            // in v0.5.45 — confirmed every dropped second-press had
+            // activeElement inside containerEL but isFocused=false.
+            var doc = this.containerEL.ownerDocument || document;
+            if (!this.containerEL.contains(doc.activeElement))
+                return;
+        }
         e.keyCode || e.which || e.charCode;
         var ctrlKey = e.ctrlKey || e.metaKey;
         var shiftKey = e.shiftKey;
