@@ -41,16 +41,23 @@ export class AddNode extends Command {
         this.node.refreshBox();
         this.refresh();
         this.mind.clearSelectNode();
-        // v0.5.42: removed the previous `setTimeout(()=>{ ... },0)` wrap
-        // around select+edit. Profiling on a real mindmap (v0.5.41 +
-        // [PROF] instrumentation) showed this setTimeout's "delay until
-        // fire" was 23ms on add-sibling, costing ~20% of the perceived
-        // lag before the new node became editable. Inlining is safe:
-        // the new node's containEl is already attached to the DOM by
-        // addNode() above and laid out by refresh(). focus()+edit()
-        // do not require a paint cycle.
-        this.node.select();
-        this.node.edit();
+        // setTimeout(0) is load-bearing — do NOT remove. v0.5.42 tried
+        // inlining this for snappiness (~25ms gain) and caused two
+        // separate regressions: (1) the "Sub title" placeholder
+        // auto-highlight stopped working (the browser's post-focus
+        // selection state overrode our range), and (2) on the Enter→
+        // addSibling path the subsequent moveNode() call's
+        // clearSelectNode() destroyed the edit mode entirely. Reverted
+        // to the original timing in v0.5.44.
+        //
+        // The proper fix is an architectural rework so the caller is
+        // responsible for select+edit AFTER any positioning work, not
+        // AddNode.execute. See Building/Mindsidian Snappy-Add Rework
+        // Design Notes.md for the full plan.
+        setTimeout(()=>{
+            this.node.select();
+            this.node.edit();
+        },0);
         return true; //exit with no error
     }
 
