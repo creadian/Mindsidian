@@ -1860,8 +1860,37 @@ export default class MindMap {
 
         if (waitNode) {
             mind.clearSelectNode();
-            waitNode.select();
+            // preventScroll: true → suppress the browser's focus-driven auto
+            // scroll-into-view. We then run our own visibility check so the
+            // map only moves when the newly-selected node is actually off
+            // screen, not on every arrow press.
+            waitNode.select({ preventScroll: true });
+            mind.scrollNodeIntoViewIfNeeded(waitNode);
         }
+    }
+
+    // Scroll the viewport just enough to bring `node` fully into view, with
+    // a small margin from the edge. If the node is already comfortably
+    // visible, do nothing — this is what makes arrow-key navigation feel
+    // stationary instead of jumpy.
+    scrollNodeIntoViewIfNeeded(node: INode) {
+        if (!node || !node.containEl) return;
+        var nodeRect = node.containEl.getBoundingClientRect();
+        var containerRect = this.containerEL.getBoundingClientRect();
+        var margin = 40; // breathing room so the node isn't flush to the edge
+        var dx = 0, dy = 0;
+        if (nodeRect.left < containerRect.left + margin) {
+            dx = nodeRect.left - (containerRect.left + margin);
+        } else if (nodeRect.right > containerRect.right - margin) {
+            dx = nodeRect.right - (containerRect.right - margin);
+        }
+        if (nodeRect.top < containerRect.top + margin) {
+            dy = nodeRect.top - (containerRect.top + margin);
+        } else if (nodeRect.bottom > containerRect.bottom - margin) {
+            dy = nodeRect.bottom - (containerRect.bottom - margin);
+        }
+        if (dx !== 0) this.containerEL.scrollLeft += dx;
+        if (dy !== 0) this.containerEL.scrollTop += dy;
     }
 
     appClickFn(evt: MouseEvent) {
