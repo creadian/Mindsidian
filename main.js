@@ -7417,6 +7417,39 @@ class ChangeNodeText extends Command {
         this.isFirst = false;
     }
 }
+// Group move: reparent N nodes in a single history step. Internally runs
+// N MoveNode commands; undo iterates them in reverse so the tree restores
+// exactly. Iteration order is chosen so siblings land in selection order
+// (forward for child/down/right; reverse for top/left).
+class GroupMoveNode extends Command {
+    constructor(builds, mind, selectAfter) {
+        super('groupMoveNode');
+        this.children = [];
+        this.mind = null;
+        this.selectAfter = null;
+        this.mind = mind;
+        this.selectAfter = selectAfter;
+        builds.forEach(b => this.children.push(new MoveNode(b)));
+    }
+    execute() {
+        for (var i = 0; i < this.children.length; i++) {
+            this.children[i].execute();
+        }
+        this.mind.clearSelectNode();
+        if (this.selectAfter) {
+            setTimeout(() => { this.selectAfter && this.selectAfter.select(); }, 0);
+        }
+        this.refresh(this.mind);
+        return true;
+    }
+    undo() {
+        for (var i = this.children.length - 1; i >= 0; i--) {
+            this.children[i].undo();
+        }
+        this.mind.clearSelectNode();
+        this.refresh(this.mind);
+    }
+}
 class MoveNode extends Command {
     constructor(data) {
         super('moveNode');
@@ -7672,6 +7705,12 @@ class Exec {
                 break;
             case 'pasteNode':
                 this.history.execute(new PasteNode(data.node, data.data));
+                break;
+            case 'groupMoveNode':
+                if (data && data.builds && data.builds.length) {
+                    var d = data;
+                    this.history.execute(new GroupMoveNode(d.builds, d.mind, d.selectAfter));
+                }
                 break;
         }
         return l_return;
@@ -7930,6 +7969,31 @@ let addIcon = '<svg class="icon" width="16px" height="16.00px" viewBox="0 0 1024
 let tempDispLevel = 0;
 class MindMap {
     constructor(data, containerEL, setting) {
+        // Multi-selection: nodes picked via the 2s-hold marquee. Independent of
+        // selectNode (single click), but clearSelectNode wipes both.
+        this.selectNodes = [];
+        // Marquee state — 2s hold on empty space activates "selection mode",
+        // which draws a rectangle and adds intersected nodes to selectNodes.
+        this._marqueeTimer = null;
+        this._marqueeMode = false;
+        this._marqueeMoved = false;
+        this._marqueeStartPageX = 0;
+        this._marqueeStartPageY = 0;
+        this._marqueeStartClientX = 0;
+        this._marqueeStartClientY = 0;
+        this._marqueeStartCanvasX = 0;
+        this._marqueeStartCanvasY = 0;
+        this._marqueeDom = null;
+        this._isGroupDrag = false;
+        // Suppress the immediate `click` event that follows the mouseup at the
+        // end of a marquee gesture — otherwise appClickFn treats it as a click on
+        // empty space and wipes the freshly-built multi-selection.
+        this._suppressNextClick = false;
+        // The node currently shown with the drop-target highlight + indicator
+        // arrow during an in-progress drag. Cached so appDrop / appTouchEnd can
+        // commit the move based on what the user saw, not on a fresh hit-test
+        // (which is unreliable if the finger lifts slightly off the target).
+        this._currentDropNode = null;
         this._nodeNum = 0;
         this._tempNum = 0;
         this.colors = [];
@@ -7959,6 +8023,10 @@ class MindMap {
         this._dragLastClientY = 0;
         this._dragStartClientX = 0;
         this._dragStartClientY = 0;
+        // Scroll position at drag start — used to keep the dragged ghost glued
+        // to the finger even when auto-pan scrolls the canvas underneath.
+        this._dragStartScrollLeft = 0;
+        this._dragStartScrollTop = 0;
         // Manual double-tap detector
         this._lastTapTime = 0;
         this._lastTapNodeId = '';
@@ -8145,6 +8213,255 @@ class MindMap {
         }
         recurse(node || this.root);
     }
+    // --- Multi-select helpers (marquee selection) ---
+    addToMultiSelect(node) {
+        if (!node || node.data.isRoot)
+            return;
+        if (this.selectNodes.indexOf(node) === -1) {
+            this.selectNodes.push(node);
+            if (node.containEl) {
+                if (!node.containEl.classList.contains('mm-node-multi-select')) {
+                    node.containEl.classList.add('mm-node-multi-select');
+                }
+                // Make the node grabbable for HTML5 drag — without this, the
+                // user can't start a group drag from a multi-selected node on
+                // desktop (draggable is only set by single-node select()).
+                node.containEl.setAttribute('draggable', 'true');
+            }
+        }
+    }
+    clearMultiSelect() {
+        if (!this.selectNodes || this.selectNodes.length === 0)
+            return;
+        for (var i = 0; i < this.selectNodes.length; i++) {
+            var n = this.selectNodes[i];
+            if (n && n.containEl) {
+                n.containEl.classList.remove('mm-node-multi-select');
+                if (!n.isSelect) {
+                    n.containEl.setAttribute('draggable', 'false');
+                }
+            }
+        }
+        this.selectNodes = [];
+    }
+    isInMultiSelect(node) {
+        return !!node && this.selectNodes.indexOf(node) !== -1;
+    }
+    // Drop any node from `set` whose ancestor is also in `set`. Prevents a
+    // descendant being reparented away from a parent that just moved.
+    _pruneToTopAncestors(nodes) {
+        if (!nodes || nodes.length < 2)
+            return nodes ? nodes.slice() : [];
+        var setIds = {};
+        for (var i = 0; i < nodes.length; i++) {
+            setIds[nodes[i].getId()] = true;
+        }
+        var out = [];
+        for (var j = 0; j < nodes.length; j++) {
+            var n = nodes[j];
+            var p = n.parent;
+            var hasAncestorSelected = false;
+            while (p) {
+                if (setIds[p.getId()]) {
+                    hasAncestorSelected = true;
+                    break;
+                }
+                p = p.parent;
+            }
+            if (!hasAncestorSelected)
+                out.push(n);
+        }
+        return out;
+    }
+    // Convert viewport (clientX/Y) coords to canvas (appEl) element coords,
+    // accounting for current scale and transform-origin.
+    //
+    // CRITICAL: read transform-origin from CSS via getComputedStyle, NOT from
+    // the JS-cached `scalePointer` variable. appMouseMove updates scalePointer
+    // on every mouse move without changing the CSS transform-origin, so the
+    // two drift apart — using the cached value here would put the marquee
+    // off by `ox*(1-s)/s` pixels at any non-100% zoom. See Lessons Learned #35
+    // in the tech doc.
+    _viewportToCanvas(clientX, clientY) {
+        var rect = this.containerEL.getBoundingClientRect();
+        var vx = clientX - rect.left;
+        var vy = clientY - rect.top;
+        var s = this.mindScale / 100;
+        var ox = 0, oy = 0;
+        try {
+            var win = (this.appEl.ownerDocument && this.appEl.ownerDocument.defaultView) || window;
+            var to = win.getComputedStyle(this.appEl).transformOrigin || '0px 0px';
+            var parts = to.split(' ');
+            ox = parseFloat(parts[0]) || 0;
+            oy = parseFloat(parts[1]) || 0;
+        }
+        catch (e) {
+            ox = this.scalePointer.length ? this.scalePointer[0] : 0;
+            oy = this.scalePointer.length ? this.scalePointer[1] : 0;
+        }
+        var sL = this.containerEL.scrollLeft;
+        var sT = this.containerEL.scrollTop;
+        return {
+            x: (vx + sL - ox * (1 - s)) / s,
+            y: (vy + sT - oy * (1 - s)) / s
+        };
+    }
+    // Walk all nodes and collect any whose getBox() rect intersects the
+    // canvas-space rectangle [x1,y1,x2,y2].
+    _nodesInRect(x1, y1, x2, y2) {
+        var minX = Math.min(x1, x2);
+        var maxX = Math.max(x1, x2);
+        var minY = Math.min(y1, y2);
+        var maxY = Math.max(y1, y2);
+        var hits = [];
+        this.traverseDF((n) => {
+            if (!n || n.data.isRoot)
+                return;
+            if (n.isHide)
+                return;
+            var box = n.getBox();
+            if (!box)
+                return;
+            var nLeft = box.x;
+            var nTop = box.y;
+            var nRight = box.x + box.width;
+            var nBottom = box.y + box.height;
+            if (nRight < minX || nLeft > maxX || nBottom < minY || nTop > maxY)
+                return;
+            hits.push(n);
+        });
+        return hits;
+    }
+    _enterMarqueeMode(startCanvasX, startCanvasY) {
+        this._marqueeMode = true;
+        if (!this._marqueeDom) {
+            this._marqueeDom = document.createElement('div');
+            this._marqueeDom.classList.add('mm-marquee');
+            this.contentEL.appendChild(this._marqueeDom);
+        }
+        this._marqueeDom.style.display = 'block';
+        this._marqueeDom.style.left = `${startCanvasX}px`;
+        this._marqueeDom.style.top = `${startCanvasY}px`;
+        this._marqueeDom.style.width = '0px';
+        this._marqueeDom.style.height = '0px';
+        // Replace any prior multi-selection so the new marquee defines a fresh set.
+        this.clearMultiSelect();
+        if (this.containerEL) {
+            this.containerEL.style.cursor = 'crosshair';
+        }
+        try {
+            if (navigator.vibrate)
+                navigator.vibrate(15);
+        }
+        catch (e) { }
+    }
+    _updateMarquee(currentCanvasX, currentCanvasY) {
+        if (!this._marqueeMode || !this._marqueeDom)
+            return;
+        var x1 = this._marqueeStartCanvasX;
+        var y1 = this._marqueeStartCanvasY;
+        var x2 = currentCanvasX;
+        var y2 = currentCanvasY;
+        var left = Math.min(x1, x2);
+        var top = Math.min(y1, y2);
+        var w = Math.abs(x2 - x1);
+        var h = Math.abs(y2 - y1);
+        this._marqueeDom.style.left = `${left}px`;
+        this._marqueeDom.style.top = `${top}px`;
+        this._marqueeDom.style.width = `${w}px`;
+        this._marqueeDom.style.height = `${h}px`;
+        // Live highlight as the rectangle grows.
+        var hits = this._nodesInRect(x1, y1, x2, y2);
+        var hitIds = {};
+        for (var i = 0; i < hits.length; i++)
+            hitIds[hits[i].getId()] = true;
+        // Remove nodes no longer in the rect.
+        for (var j = this.selectNodes.length - 1; j >= 0; j--) {
+            var n = this.selectNodes[j];
+            if (!hitIds[n.getId()]) {
+                if (n.containEl)
+                    n.containEl.classList.remove('mm-node-multi-select');
+                this.selectNodes.splice(j, 1);
+            }
+        }
+        // Add any new ones.
+        for (var k = 0; k < hits.length; k++)
+            this.addToMultiSelect(hits[k]);
+    }
+    _endMarqueeMode() {
+        this._marqueeMode = false;
+        if (this._marqueeDom)
+            this._marqueeDom.style.display = 'none';
+        if (this._marqueeTimer) {
+            clearTimeout(this._marqueeTimer);
+            this._marqueeTimer = null;
+        }
+        if (this.containerEL)
+            this.containerEL.style.cursor = '';
+    }
+    // Find the nearest valid drop-target node within `threshold` pixels of the
+    // (clientX, clientY) viewport point. Returns null if nothing's close enough.
+    // Excludes the dragNode itself and any descendant of it (cycle prevention).
+    // Mobile-friendly: lets the user activate the drop indicator before their
+    // finger covers the target node.
+    _findNearestDropCandidate(clientX, clientY, dragNode, threshold) {
+        if (!dragNode)
+            return null;
+        var best = null;
+        var bestDist = threshold;
+        this.traverseDF((n) => {
+            if (!n || n === dragNode)
+                return;
+            if (n.isHide)
+                return;
+            // Skip descendants of the drag node (would create a cycle).
+            var p = n;
+            while (p) {
+                if (p === dragNode)
+                    return;
+                p = p.parent;
+            }
+            var rect = n.containEl ? n.containEl.getBoundingClientRect() : null;
+            if (!rect || rect.width === 0)
+                return;
+            // Distance from (clientX, clientY) to the nearest edge of rect.
+            // Inside the rect → distance is 0.
+            var dx = 0;
+            if (clientX < rect.left)
+                dx = rect.left - clientX;
+            else if (clientX > rect.right)
+                dx = clientX - rect.right;
+            var dy = 0;
+            if (clientY < rect.top)
+                dy = rect.top - clientY;
+            else if (clientY > rect.bottom)
+                dy = clientY - rect.bottom;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = n;
+            }
+        });
+        return best;
+    }
+    // Manage the dashed outline highlight on the candidate drop-target. Idempotent.
+    _setDropHighlight(node) {
+        if (this._currentDropNode === node)
+            return;
+        if (this._currentDropNode && this._currentDropNode.containEl) {
+            this._currentDropNode.containEl.classList.remove('mm-node-drop-target');
+        }
+        this._currentDropNode = node;
+        if (node && node.containEl) {
+            node.containEl.classList.add('mm-node-drop-target');
+        }
+    }
+    _cancelMarqueeTimerIfPending() {
+        if (this._marqueeTimer) {
+            clearTimeout(this._marqueeTimer);
+            this._marqueeTimer = null;
+        }
+    }
     getNodeById(id) {
         var snode = null;
         this.traverseDF((n) => {
@@ -8166,6 +8483,7 @@ class MindMap {
             }
             this.editNode = null;
         }
+        this.clearMultiSelect();
         // if(this.selectingNodes)
         // {// Add the node to the selectedNodes
         //     this.selectedNodes.push(this.selectNode);
@@ -8296,6 +8614,26 @@ class MindMap {
         var ctrlKey = e.ctrlKey || e.metaKey;
         var shiftKey = e.shiftKey;
         var altKey = e.altKey;
+        // Escape cancels marquee mode or clears an existing multi-selection.
+        if (e.key === 'Escape') {
+            if (this._marqueeMode) {
+                this._endMarqueeMode();
+                this.clearMultiSelect();
+                if (!obsidian.Platform.isDesktop) {
+                    this.appEl.style.touchAction = 'pan-x pan-y';
+                    this.containerEL.style.touchAction = 'pan-x pan-y';
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            if (this.selectNodes.length > 0) {
+                this.clearMultiSelect();
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        }
         // if (ctrlKey) {                         // Shift -> Selecting
         //     // ctrl -> selecting
         //     this.selectingNodes = true;
@@ -9120,6 +9458,15 @@ class MindMap {
     appClickFn(evt) {
         var _a;
         var targetEl = evt.target;
+        // Eat the click that follows a marquee mouseup — otherwise the
+        // "empty-space click → clearSelectNode" branch below wipes the fresh
+        // multi-selection the user just made.
+        if (this._suppressNextClick) {
+            this._suppressNextClick = false;
+            evt.preventDefault();
+            evt.stopPropagation();
+            return;
+        }
         if (targetEl) {
             if (targetEl.tagName == 'A' && targetEl.hasClass("internal-link")) {
                 evt.preventDefault();
@@ -9210,6 +9557,10 @@ class MindMap {
                 var id = evt.target.closest('.mm-node').getAttribute('data-id');
                 this._dragNode = this.getNodeById(id);
                 this.drag = true;
+                // If the dragged node is part of the marquee selection, treat
+                // this as a group drag. On drop we'll reparent all selected
+                // roots in one batched history step.
+                this._isGroupDrag = this.isInMultiSelect(this._dragNode) && this.selectNodes.length > 1;
             }
         }
     }
@@ -9217,20 +9568,24 @@ class MindMap {
         this.drag = false;
         this._indicateDom.style.display = 'none';
         this._menuDom.style.display = 'none';
+        this._setDropHighlight(null);
     }
     appDragover(evt) {
         evt.preventDefault();
         evt.stopPropagation();
-        var target = evt.target;
         var x = evt.pageX;
         var y = evt.pageY;
         if (this.drag) {
             this.dx = x - this.startX;
             this.dx = y - this.startY;
         }
-        if (target.closest('.mm-node')) {
-            var nodeId = target.closest('.mm-node').getAttribute('data-id');
-            var node = this.getNodeById(nodeId);
+        // Wider hit zone (24px on desktop) so the indicator activates as the
+        // cursor approaches a node, not just when it's directly on top.
+        // The cursor doesn't cover the node like a finger does, so the band
+        // is narrower than mobile's 60px.
+        var node = this._dragNode ? this._findNearestDropCandidate(evt.clientX, evt.clientY, this._dragNode, 24) : null;
+        this._setDropHighlight(node);
+        if (node) {
             var box = node.getBox();
             this._dragType = this._getDragType(node, x, y);
             this._indicateDom.style.display = 'block';
@@ -9262,6 +9617,7 @@ class MindMap {
         }
         else {
             this._indicateDom.style.display = 'none';
+            this._dragType = '';
         }
     }
     _getDragType(node, x, y) {
@@ -9315,18 +9671,31 @@ class MindMap {
         // an internal dragstart (which set _dragNode). External file drops
         // (e.g. .xmind imported from Finder) leave _dragNode undefined — fall
         // through to the file-handling block below instead of crashing.
-        if (evt.target instanceof HTMLElement && this._dragNode) {
-            if (evt.target.closest('.mm-node')) {
+        if (this._dragNode) {
+            // Prefer the cached drop target (the node the user saw highlighted)
+            // but fall back to a fresh nearest-node search in case the cache
+            // was cleared by a transient empty-dragover tick before release.
+            var dropNode = this._currentDropNode;
+            if (!dropNode) {
+                dropNode = this._findNearestDropCandidate(evt.clientX, evt.clientY, this._dragNode, 24);
+            }
+            // Make sure the drag-type is still valid; recompute against the
+            // resolved target if it was reset.
+            if (dropNode && !this._dragType) {
+                this._dragType = this._getDragType(dropNode, evt.pageX, evt.pageY);
+            }
+            if (dropNode && !this._dragNode.data.isRoot) {
                 evt.preventDefault();
-                var dropNodeId = evt.target.closest('.mm-node').getAttribute('data-id');
-                var dropNode = this.getNodeById(dropNodeId);
-                if (!this._dragNode.data.isRoot) {
-                    if (evt.ctrlKey) { // Ctrl key pressed: copy the node
-                        let copiedNode = this.copyNode(this._dragNode);
-                        dropNode.select();
-                        this.pasteNode(copiedNode);
+                if (evt.ctrlKey) { // Ctrl key pressed: copy the node
+                    let copiedNode = this.copyNode(this._dragNode);
+                    dropNode.select();
+                    this.pasteNode(copiedNode);
+                }
+                else { // Move the node (single or group)
+                    if (this._isGroupDrag) {
+                        this.moveNodesGroup(this.selectNodes, dropNode, this._dragType);
                     }
-                    else { // Move the node
+                    else {
                         this.moveNode(this._dragNode, dropNode, this._dragType);
                     }
                 }
@@ -9368,6 +9737,8 @@ class MindMap {
         }
         this._indicateDom.style.display = 'none';
         this._menuDom.style.display = 'none';
+        this._setDropHighlight(null);
+        this._isGroupDrag = false;
     }
     appMouseOverFn(evt) {
         const targetEl = evt.target;
@@ -9398,6 +9769,20 @@ class MindMap {
             }
         }
         else {
+            // Marquee active — update rectangle and live-highlight, suppress pan.
+            if (this._marqueeMode) {
+                var canvasPt = this._viewportToCanvas(evt.clientX, evt.clientY);
+                this._updateMarquee(canvasPt.x, canvasPt.y);
+                return;
+            }
+            // 2s-hold timer pending — cancel it on first real movement, then pan.
+            if (this._marqueeTimer) {
+                var dx = Math.abs(evt.pageX - this._marqueeStartPageX);
+                var dy = Math.abs(evt.pageY - this._marqueeStartPageY);
+                if (dx > 5 || dy > 5) {
+                    this._cancelMarqueeTimerIfPending();
+                }
+            }
             if (this.drag) {
                 this.containerEL.scrollLeft = this._left - (evt.pageX - this.startX);
                 this.containerEL.scrollTop = this._top - (evt.pageY - this.startY);
@@ -9412,9 +9797,45 @@ class MindMap {
             this.startY = evt.pageY;
             this._left = this.containerEL.scrollLeft;
             this._top = this.containerEL.scrollTop;
+            // Start the 2s hold-still timer for marquee mode. If the cursor
+            // moves > 5px before it fires, appMouseMove cancels it and the
+            // existing pan path keeps working unchanged.
+            this._marqueeStartPageX = evt.pageX;
+            this._marqueeStartPageY = evt.pageY;
+            this._marqueeStartClientX = evt.clientX;
+            this._marqueeStartClientY = evt.clientY;
+            this._cancelMarqueeTimerIfPending();
+            var self = this;
+            this._marqueeTimer = setTimeout(function () {
+                self._marqueeTimer = null;
+                // Compute canvas start point AT TIMER FIRE TIME so the inverse-
+                // transform reads the current CSS transform-origin / scroll.
+                // Earlier we tried computing at mousedown, but if anything
+                // updated CSS transform-origin in the 1.5s wait, the marquee
+                // would land in the wrong place.
+                var freshPt = self._viewportToCanvas(self._marqueeStartClientX, self._marqueeStartClientY);
+                self._marqueeStartCanvasX = freshPt.x;
+                self._marqueeStartCanvasY = freshPt.y;
+                // Stop the pan that started on mousedown so the marquee owns the gesture.
+                self.drag = false;
+                self._enterMarqueeMode(self._marqueeStartCanvasX, self._marqueeStartCanvasY);
+            }, 1500);
         }
     }
     appMouseUp(evt) {
+        if (this._marqueeMode) {
+            // Finalize the marquee — selectNodes is already populated by _updateMarquee.
+            // Suppress the click event that fires immediately after this mouseup —
+            // otherwise appClickFn treats the empty-space target as a click and
+            // wipes the freshly-built multi-selection.
+            this._suppressNextClick = true;
+            this._endMarqueeMode();
+            this.drag = false;
+            evt.preventDefault();
+            evt.stopPropagation();
+            return;
+        }
+        this._cancelMarqueeTimerIfPending();
         this.drag = false;
     }
     _getTouchDist(touches) {
@@ -9509,7 +9930,17 @@ class MindMap {
                         this._dragNode = holdNode;
                         this.drag = true;
                         this._isLongPressDragging = true;
-                        holdNode.contentEl.classList.add('mm-node-dragging');
+                        // Capture scroll baseline — needed in appTouchMove to
+                        // compensate ghost translate for auto-pan scroll.
+                        this._dragStartScrollLeft = this.containerEL.scrollLeft;
+                        this._dragStartScrollTop = this.containerEL.scrollTop;
+                        // If the held node is part of the marquee selection,
+                        // drag the whole group.
+                        this._isGroupDrag = this.isInMultiSelect(holdNode) && this.selectNodes.length > 1;
+                        // Apply the "being dragged" visual to the OUTER .mm-node
+                        // (containEl), not the inner text div, so the whole
+                        // box — border, fold dot, and shadow — lifts and follows.
+                        holdNode.containEl.classList.add('mm-node-dragging');
                         this._menuDom.style.display = 'none';
                         if (navigator.vibrate)
                             navigator.vibrate(20);
@@ -9518,6 +9949,27 @@ class MindMap {
                         this.containerEL.style.touchAction = 'none';
                     }
                 }, 500);
+            }
+            else if (!nodeAncestor) {
+                // Empty-space tap: start the 2s hold-still timer for marquee mode.
+                // If the finger moves >10px before it fires, appTouchMove cancels it
+                // so native iOS panning continues uninterrupted.
+                this._marqueeStartPageX = evt.touches[0].clientX;
+                this._marqueeStartPageY = evt.touches[0].clientY;
+                var startClientX = evt.touches[0].clientX;
+                var startClientY = evt.touches[0].clientY;
+                this._cancelMarqueeTimerIfPending();
+                var self = this;
+                this._marqueeTimer = setTimeout(function () {
+                    self._marqueeTimer = null;
+                    var pt = self._viewportToCanvas(startClientX, startClientY);
+                    self._marqueeStartCanvasX = pt.x;
+                    self._marqueeStartCanvasY = pt.y;
+                    self._enterMarqueeMode(pt.x, pt.y);
+                    // Take over the gesture: stop iOS native pan.
+                    self.appEl.style.touchAction = 'none';
+                    self.containerEL.style.touchAction = 'none';
+                }, 1000);
             }
         }
     }
@@ -9528,6 +9980,22 @@ class MindMap {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
+        // Marquee active — update rectangle and live-highlight, suppress native pan.
+        if (this._marqueeMode && evt.touches.length === 1) {
+            evt.preventDefault();
+            var mPt = this._viewportToCanvas(evt.touches[0].clientX, evt.touches[0].clientY);
+            this._updateMarquee(mPt.x, mPt.y);
+            return;
+        }
+        // 2s-hold timer pending — cancel on first real finger movement so iOS
+        // native scroll continues uninterrupted. Do NOT preventDefault here.
+        if (this._marqueeTimer && evt.touches.length === 1) {
+            var mdx = Math.abs(evt.touches[0].clientX - this._marqueeStartPageX);
+            var mdy = Math.abs(evt.touches[0].clientY - this._marqueeStartPageY);
+            if (mdx > 10 || mdy > 10) {
+                this._cancelMarqueeTimerIfPending();
+            }
+        }
         // Drag-to-reparent in progress: track finger, position drop indicator,
         // visually translate the dragged node so the user can see it follow,
         // and auto-pan if near the viewport edge.
@@ -9537,38 +10005,49 @@ class MindMap {
             this._dragLastClientX = t.clientX;
             this._dragLastClientY = t.clientY;
             // Make the dragged node visually follow the finger.
-            // Translate by the finger delta from drag start. The node's
-            // layout position stays the same — only the visual paint shifts.
-            // Divide by the current zoom so the visual delta matches the
-            // finger movement (the parent appEl is scaled).
+            // Apply translate to the OUTER .mm-node (containEl), not the inner
+            // text div — otherwise only the text moves and the surrounding
+            // box (border, fold dot, dragging-shadow) stays glued in place,
+            // making it impossible to see where you're about to drop.
+            // The node's layout position stays the same; only the visual paint
+            // shifts. Divide by current zoom so the visual delta matches the
+            // finger delta (the parent appEl is scaled).
+            //
+            // Additional asymmetric shift so the dragged ghost sits offset
+            // from the finger — primarily LEFT (so the user can see the
+            // target node clearly to the left of the ghost), with a small
+            // upward lift. The shift is in visible pixels, divided by zoom
+            // so it stays constant on screen regardless of mindmap scale.
             var s = this.mindScale / 100;
-            var dx = (t.clientX - this._dragStartClientX) / s;
-            var dy = (t.clientY - this._dragStartClientY) / s;
-            this._dragNode.contentEl.style.transform = `translate(${dx}px, ${dy}px)`;
-            // Find the node under the finger (skip the dragged node and its descendants).
-            var hitEl = document.elementFromPoint(t.clientX, t.clientY);
-            var nodeEl = hitEl ? hitEl.closest('.mm-node') : null;
-            var dropNode = null;
-            if (nodeEl) {
-                var dropId = nodeEl.getAttribute('data-id');
-                if (dropId && dropId !== this._dragNode.getId()) {
-                    var candidate = this.getNodeById(dropId);
-                    // Skip if candidate is a descendant of the drag node (would create a cycle)
-                    var p = candidate;
-                    var isDescendant = false;
-                    while (p && p.parent) {
-                        if (p.parent === this._dragNode) {
-                            isDescendant = true;
-                            break;
-                        }
-                        p = p.parent;
-                    }
-                    if (!isDescendant)
-                        dropNode = candidate;
-                }
-            }
+            var DRAG_VISUAL_SHIFT_X = 55; // strong leftward shift
+            var DRAG_VISUAL_SHIFT_Y = 15; // gentle upward shift
+            var shiftX = DRAG_VISUAL_SHIFT_X / s;
+            var shiftY = DRAG_VISUAL_SHIFT_Y / s;
+            // Compose translate from BOTH finger displacement AND any canvas
+            // scroll that's happened since drag start. Without the scroll term,
+            // every auto-pan tick (below) drifts the ghost off the finger by
+            // ~12 visual px because the canvas moves under a static translate.
+            var fingerDx = t.clientX - this._dragStartClientX;
+            var fingerDy = t.clientY - this._dragStartClientY;
+            var scrollDx = this.containerEL.scrollLeft - this._dragStartScrollLeft;
+            var scrollDy = this.containerEL.scrollTop - this._dragStartScrollTop;
+            var dx = (fingerDx + scrollDx) / s;
+            var dy = (fingerDy + scrollDy) / s;
+            this._dragNode.containEl.style.transform = `translate(${dx - shiftX}px, ${dy - shiftY}px)`;
+            // The user is dragging the GHOST (not the finger), so the hit-test
+            // must happen at the ghost's position — finger minus visual shift —
+            // not at the raw finger position. Otherwise the target indicator
+            // lands on whatever's under the finger while the user is aiming
+            // the ghost at a node further left.
+            var hitX = t.clientX - DRAG_VISUAL_SHIFT_X;
+            var hitY = t.clientY - DRAG_VISUAL_SHIFT_Y;
+            // Wide hit zone (60px on mobile) so the indicator appears before
+            // the ghost covers the target node. _findNearestDropCandidate
+            // skips the drag node and its descendants automatically.
+            var dropNode = this._findNearestDropCandidate(hitX, hitY, this._dragNode, 60);
+            this._setDropHighlight(dropNode);
             if (dropNode) {
-                this._dragType = this._getDragType(dropNode, t.clientX, t.clientY);
+                this._dragType = this._getDragType(dropNode, hitX, hitY);
                 var box = dropNode.getBox();
                 this._indicateDom.style.display = 'block';
                 this._indicateDom.style.left = box.x + box.width / 2 - 40 / 2 + 'px';
@@ -9602,17 +10081,41 @@ class MindMap {
                 this._dragType = '';
             }
             // Auto-pan when the finger nears the viewport edge.
+            // Bottom zone is deeper than the others because the mobile action
+            // bar + iOS home indicator together occupy ~110px at the bottom of
+            // the viewport — without the extra reach, the auto-pan trigger
+            // would sit behind UI the user's finger can't usefully cross into.
             var rect = this.containerEL.getBoundingClientRect();
             var EDGE = 48;
+            var EDGE_BOTTOM = 110;
             var SPEED = 12;
-            if (t.clientX - rect.left < EDGE)
+            var panned = false;
+            if (t.clientX - rect.left < EDGE) {
                 this.containerEL.scrollLeft -= SPEED;
-            else if (rect.right - t.clientX < EDGE)
+                panned = true;
+            }
+            else if (rect.right - t.clientX < EDGE) {
                 this.containerEL.scrollLeft += SPEED;
-            if (t.clientY - rect.top < EDGE)
+                panned = true;
+            }
+            if (t.clientY - rect.top < EDGE) {
                 this.containerEL.scrollTop -= SPEED;
-            else if (rect.bottom - t.clientY < EDGE)
+                panned = true;
+            }
+            else if (rect.bottom - t.clientY < EDGE_BOTTOM) {
                 this.containerEL.scrollTop += SPEED;
+                panned = true;
+            }
+            if (panned) {
+                // Re-apply translate after auto-pan changed scroll, so the
+                // ghost stays glued to the finger instead of trailing by
+                // SPEED pixels per touchmove tick.
+                var scrollDx2 = this.containerEL.scrollLeft - this._dragStartScrollLeft;
+                var scrollDy2 = this.containerEL.scrollTop - this._dragStartScrollTop;
+                var dx2 = (fingerDx + scrollDx2) / s;
+                var dy2 = (fingerDy + scrollDy2) / s;
+                this._dragNode.containEl.style.transform = `translate(${dx2 - shiftX}px, ${dy2 - shiftY}px)`;
+            }
             return;
         }
         // Pinch zoom: only update scale. Origin was anchored to the finger
@@ -9634,36 +10137,49 @@ class MindMap {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
+        if (this._marqueeTimer) {
+            clearTimeout(this._marqueeTimer);
+            this._marqueeTimer = null;
+        }
+        if (this._marqueeMode) {
+            // Finalize the marquee — restore native panning.
+            this._endMarqueeMode();
+            this.appEl.style.touchAction = 'pan-x pan-y';
+            this.containerEL.style.touchAction = 'pan-x pan-y';
+            return;
+        }
         // Drop the dragged node if a long-press drag was in progress.
         if (this._isLongPressDragging && this._dragNode) {
-            // Hide the node before hit-testing so elementFromPoint sees through it.
-            // (Otherwise the dragged node is on top and we'd "drop on ourselves".)
             var dragNode = this._dragNode;
-            if (dragNode.contentEl)
-                dragNode.contentEl.style.visibility = 'hidden';
-            var hitEl = document.elementFromPoint(this._dragLastClientX, this._dragLastClientY);
-            if (dragNode.contentEl)
-                dragNode.contentEl.style.visibility = '';
-            var nodeEl = hitEl ? hitEl.closest('.mm-node') : null;
-            var dropNode = null;
-            if (nodeEl) {
-                var dropId = nodeEl.getAttribute('data-id');
-                if (dropId && dropId !== dragNode.getId()) {
-                    dropNode = this.getNodeById(dropId);
-                }
-            }
+            // Commit to whatever target was last shown to the user (with the
+            // indicator arrow + dashed highlight). More reliable than a fresh
+            // elementFromPoint check — the finger may have lifted slightly off
+            // the visible target by the moment of touchend.
+            var dropNode = this._currentDropNode;
             if (dropNode && this._dragType) {
-                this.moveNode(dragNode, dropNode, this._dragType);
+                if (this._isGroupDrag) {
+                    this.moveNodesGroup(this.selectNodes, dropNode, this._dragType);
+                }
+                else {
+                    this.moveNode(dragNode, dropNode, this._dragType);
+                }
             }
             // Clean up — clear the visual translate transform first so the
             // node snaps back to its layout position before being repainted
             // (or, if reparented, repainted at its new layout position).
+            if (dragNode.containEl) {
+                dragNode.containEl.style.transform = '';
+                dragNode.containEl.classList.remove('mm-node-dragging');
+            }
+            // Defensive: also clear any leftover state on contentEl from
+            // older builds where the transform/class lived on the inner div.
             if (dragNode.contentEl) {
                 dragNode.contentEl.style.transform = '';
                 dragNode.contentEl.classList.remove('mm-node-dragging');
             }
             this._indicateDom.style.display = 'none';
             this._isLongPressDragging = false;
+            this._isGroupDrag = false;
             this._dragNode = null;
             this._dragType = '';
             this.drag = false;
@@ -9681,14 +10197,31 @@ class MindMap {
             clearTimeout(this._longPressTimer);
             this._longPressTimer = null;
         }
+        if (this._marqueeTimer) {
+            clearTimeout(this._marqueeTimer);
+            this._marqueeTimer = null;
+        }
+        if (this._marqueeMode) {
+            this._endMarqueeMode();
+            this.appEl.style.touchAction = 'pan-x pan-y';
+            this.containerEL.style.touchAction = 'pan-x pan-y';
+        }
         // Cancel any in-progress drag without applying the move.
         if (this._isLongPressDragging) {
-            if (this._dragNode && this._dragNode.contentEl) {
-                this._dragNode.contentEl.style.transform = '';
-                this._dragNode.contentEl.classList.remove('mm-node-dragging');
+            if (this._dragNode) {
+                if (this._dragNode.containEl) {
+                    this._dragNode.containEl.style.transform = '';
+                    this._dragNode.containEl.classList.remove('mm-node-dragging');
+                }
+                if (this._dragNode.contentEl) {
+                    this._dragNode.contentEl.style.transform = '';
+                    this._dragNode.contentEl.classList.remove('mm-node-dragging');
+                }
             }
             this._indicateDom.style.display = 'none';
+            this._setDropHighlight(null);
             this._isLongPressDragging = false;
+            this._isGroupDrag = false;
             this._dragNode = null;
             this._dragType = '';
             this.drag = false;
@@ -9868,6 +10401,75 @@ class MindMap {
             }
         }
         // this.execute('moveNode', { type: 'child', node: dragNode, oldParent: dragNode.parent, parent: dropNode })
+    }
+    // Group reparent: move every selected node (pruned to top ancestors so a
+    // descendant doesn't get moved away from a parent that just moved) under
+    // dropNode/type, in a single history step.
+    moveNodesGroup(nodes, dropNode, type) {
+        if (!nodes || nodes.length === 0 || !dropNode || !type)
+            return;
+        // 1. Prune descendants whose ancestor is also in the set.
+        var roots = this._pruneToTopAncestors(nodes);
+        // 2. Filter out invalid moves (root nodes, self-as-drop, would-create-cycle).
+        var valid = [];
+        for (var i = 0; i < roots.length; i++) {
+            var n = roots[i];
+            if (n.data.isRoot)
+                continue;
+            if (n === dropNode)
+                continue;
+            // Cycle check: dropNode must not be a descendant of n.
+            var p = dropNode.parent;
+            var isCycle = false;
+            while (p) {
+                if (p === n) {
+                    isCycle = true;
+                    break;
+                }
+                p = p.parent;
+            }
+            if (isCycle)
+                continue;
+            valid.push(n);
+        }
+        if (valid.length === 0)
+            return;
+        // 3. Sibling drops anchor adjacent to dropNode. To preserve selection
+        //    order in the resulting tree, iterate forward for "after"
+        //    directions and reverse for "before" directions.
+        var reverse = (type === 'top' || type === 'left');
+        var ordered = reverse ? valid.slice().reverse() : valid.slice();
+        // 4. Build the MoveNode-data array for the batched command.
+        var builds = [];
+        for (var j = 0; j < ordered.length; j++) {
+            var node = ordered[j];
+            if (type === 'top' || type === 'left' || type === 'down' || type === 'right') {
+                builds.push({ type: 'siblings', node: node, oldParent: node.parent, dropNode: dropNode, direct: type });
+            }
+            else if (type.indexOf('child') > -1) {
+                if (type === 'right' || type === 'left') {
+                    if (!dropNode.isExpand)
+                        dropNode.expand();
+                }
+                var typeArr = type.split('-');
+                if (typeArr[1]) {
+                    builds.push({ type: 'child', node: node, oldParent: node.parent, parent: dropNode, direct: typeArr[1] });
+                }
+                else {
+                    builds.push({ type: 'child', node: node, oldParent: node.parent, parent: dropNode });
+                }
+            }
+            dropNode.clearCacheData();
+            node.clearCacheData();
+        }
+        if (builds.length === 0)
+            return;
+        this.execute('groupMoveNode', { builds: builds, mind: this, selectAfter: valid[0] });
+        // Re-apply multi-select highlight on the moved nodes so the user can
+        // see what they just placed.
+        this.clearMultiSelect();
+        for (var k = 0; k < valid.length; k++)
+            this.addToMultiSelect(valid[k]);
     }
     // Move all the current node's siblings as this node's children
     moveAllSiblingsAsChildren(node) {

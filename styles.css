@@ -44,10 +44,23 @@
 
 /* Long-press drag-to-reparent (mobile) — node lifts visually */
 .mm-mindmap .mm-node.mm-node-dragging {
-  opacity: 0.75;
+  /* Opacity is intentionally low so the user can SEE the target node and its
+     dashed drop-target outline THROUGH the dragged node — important for
+     medium-sized nodes (e.g. ### children of ## headings) that would
+     otherwise obscure the target. The ~22px up-left visual shift applied
+     during touchmove (DRAG_VISUAL_SHIFT_PX) is the complementary half of
+     this fix; together they keep the area around the finger uncovered. */
+  opacity: 0.4;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
   z-index: 100;
   transition: opacity 0.12s ease, box-shadow 0.12s ease;
+  /* The dragged node visually sits under the finger via translate(), so
+     elementFromPoint would otherwise return the dragged node itself — meaning
+     we never find the drop target underneath and the alignment arrows never
+     appear. Pointer-events:none makes the dragged node transparent to hit-
+     testing while still moving with the finger (touch dispatch is sticky to
+     the touchstart target on iOS, so the ongoing drag is unaffected). */
+  pointer-events: none;
 }
 /* Content layer gets its own compositing context */
 .mm-mindmap > div {
@@ -144,6 +157,43 @@
   box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
 }
 
+/* --- Drop-target highlight (shown on the node a drag is about to land on) --- */
+.mm-node.mm-node-drop-target {
+  outline: 2.5px dashed #f59e0b; /* amber-500 — distinct from selection accent */
+  outline-offset: 4px;
+  border-radius: 10px;
+  transition: outline-color 0.12s ease;
+}
+.theme-dark .mm-node.mm-node-drop-target {
+  outline-color: #fbbf24; /* amber-400 for dark mode contrast */
+}
+
+/* --- Multi-selected nodes (marquee selection) --- */
+.mm-node.mm-node-multi-select {
+  border: 2px dashed var(--interactive-accent, #6366f1);
+  border-radius: 10px;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.06);
+}
+.theme-dark .mm-node.mm-node-multi-select {
+  box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.28);
+  background: rgba(129, 140, 248, 0.08);
+}
+
+/* --- Marquee rectangle (selection mode) --- */
+.mm-marquee {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px dashed var(--interactive-accent, #6366f1);
+  background: rgba(99, 102, 241, 0.08);
+  border-radius: 4px;
+  z-index: 90;
+  display: none;
+}
+.theme-dark .mm-marquee {
+  background: rgba(129, 140, 248, 0.12);
+}
+
 /* --- Collapse/expand indicator (the dot on nodes) --- */
 .mm-node-bar {
   position: absolute;
@@ -205,7 +255,10 @@
   border: 20px solid transparent;
   border-bottom: 40px solid var(--interactive-accent, #6366f1);
   transform-origin: center center;
-  z-index: 100;
+  /* Must sit ABOVE the dragged node (z-index 100) so the arrow stays visible
+     even when a large dragged node visually overlaps it. */
+  z-index: 200;
+  pointer-events: none;
 }
 
 .mm-node-layout-indicate.mm-arrow-left {

@@ -89,6 +89,12 @@ export default class Exec{
             case 'pasteNode':
                 this.history.execute(new cmd.PasteNode(data.node,data.data));
                 break;
+            case 'groupMoveNode':
+                if (data && (data as any).builds && (data as any).builds.length) {
+                    var d:any = data;
+                    this.history.execute(new cmd.GroupMoveNode(d.builds, d.mind, d.selectAfter));
+                }
+                break;
        }
 
        return l_return;

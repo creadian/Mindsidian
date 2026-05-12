@@ -126,6 +126,40 @@ export class ChangeNodeText extends Command {
     }
 }
 
+// Group move: reparent N nodes in a single history step. Internally runs
+// N MoveNode commands; undo iterates them in reverse so the tree restores
+// exactly. Iteration order is chosen so siblings land in selection order
+// (forward for child/down/right; reverse for top/left).
+export class GroupMoveNode extends Command {
+    children:MoveNode[] = [];
+    mind:MindMap = null;
+    selectAfter:INode = null;
+    constructor(builds:any[], mind:MindMap, selectAfter?:INode) {
+        super('groupMoveNode');
+        this.mind = mind;
+        this.selectAfter = selectAfter;
+        builds.forEach(b => this.children.push(new MoveNode(b)));
+    }
+    execute():boolean {
+        for (var i = 0; i < this.children.length; i++) {
+            this.children[i].execute();
+        }
+        this.mind.clearSelectNode();
+        if (this.selectAfter) {
+            setTimeout(() => { this.selectAfter && this.selectAfter.select(); }, 0);
+        }
+        this.refresh(this.mind);
+        return true;
+    }
+    undo() {
+        for (var i = this.children.length - 1; i >= 0; i--) {
+            this.children[i].undo();
+        }
+        this.mind.clearSelectNode();
+        this.refresh(this.mind);
+    }
+}
+
 export class MoveNode extends Command {
     data:any={};
     node:INode;
