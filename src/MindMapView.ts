@@ -721,10 +721,69 @@ export class MindMapView extends TextFileView implements HoverParent {
 
     if (newNode) {
       newNode.select();
+      // Scroll the new node into a comfortable visible position BEFORE the
+      // edit-triggered keyboard appears, so siblings don't disappear behind
+      // the bottom bar and children don't render past the right edge.
+      this.scrollNodeIntoViewMobile(newNode);
       // Enter edit mode synchronously in the same user-gesture so iOS
       // accepts the focus transfer and the keyboard stays up.
       newNode.edit();
+      // One more scroll after the keyboard animation has settled — iOS
+      // sometimes auto-scrolls on contentEditable focus, and we want our
+      // intent to be the final state.
+      setTimeout(() => this.scrollNodeIntoViewMobile(newNode), 350);
     }
+  }
+
+  // Pan the mindmap viewport so the given node sits comfortably inside
+  // the visible area: not too close to the right edge (problem when adding
+  // children at low zoom) and not behind the bottom action bar / keyboard
+  // (problem when adding siblings, which stack downward).
+  //
+  // Uses generous reserved-bottom space (400px) so the scroll triggers
+  // EARLY — i.e. while the new node is still some distance above the bar —
+  // not at the last moment.
+  private scrollNodeIntoViewMobile(node: any) {
+    if (!this.mindmap || !node) return;
+    var container = this.mindmap.containerEL;
+    if (!container) return;
+
+    var cw = container.clientWidth;
+    var ch = container.clientHeight;
+    var scale = this.mindmap.mindScale / 100;
+    var ox = this.mindmap.scalePointer.length ? this.mindmap.scalePointer[0] : 0;
+    var oy = this.mindmap.scalePointer.length ? this.mindmap.scalePointer[1] : 0;
+
+    var pos = node.getPosition();
+    var dim = node.getDimensions();
+
+    // Position of the node in container-viewport coordinates, given the
+    // CURRENT mindScale, transform-origin, and scroll.
+    var visibleX = pos.x * scale + ox * (1 - scale) - container.scrollLeft;
+    var visibleY = pos.y * scale + oy * (1 - scale) - container.scrollTop;
+    var visibleW = dim.x * scale;
+    var visibleH = dim.y * scale;
+
+    // Reserved zones — generous so scroll happens proactively, not reactively.
+    // Bottom: ~iPhone keyboard (300) + bar (90) + margin so siblings show with
+    // breathing room. Right: 120 keeps a chunk of space past new children.
+    var bottomReserved = 400;
+    var rightPad = 120;
+
+    var scrollDx = 0;
+    var scrollDy = 0;
+
+    // Below the safe zone → scroll up to bring node back
+    if (visibleY + visibleH > ch - bottomReserved) {
+      scrollDy = (visibleY + visibleH) - (ch - bottomReserved);
+    }
+    // Right of the safe zone → scroll right to bring node back
+    if (visibleX + visibleW > cw - rightPad) {
+      scrollDx = (visibleX + visibleW) - (cw - rightPad);
+    }
+
+    if (scrollDx !== 0) container.scrollLeft += scrollDx;
+    if (scrollDy !== 0) container.scrollTop += scrollDy;
   }
 
   private teardownMobileActionBar() {
