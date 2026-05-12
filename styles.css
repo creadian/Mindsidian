@@ -434,11 +434,12 @@
   font-size: calc(var(--mm-action-btn-size, 56px) * 0.5);
 }
 
-/* Small secondary buttons: undo, redo, trash, recenter. ~2/3 of full size
-   and muted color so they don't compete with the primary actions. */
+/* Small secondary buttons: undo, redo, trash, highlight, recenter. ~2/3 of
+   full size and muted color so they don't compete with the primary actions. */
 .mm-mobile-action-undo,
 .mm-mobile-action-redo,
 .mm-mobile-action-trash,
+.mm-mobile-action-highlight,
 .mm-mobile-action-recenter {
   width: calc(var(--mm-action-btn-size, 56px) * 0.65);
   height: calc(var(--mm-action-btn-size, 56px) * 0.65);
@@ -456,6 +457,7 @@
 }
 .mm-mobile-action-redo,
 .mm-mobile-action-trash,
+.mm-mobile-action-highlight,
 .mm-mobile-action-recenter {
   margin-left: 6px;
 }
@@ -525,4 +527,65 @@
 .mm-task.mm-task-done .mm-task-checkbox {
   text-decoration: none;
   opacity: 1;
+}
+
+/* ============================================
+   Highlight color palette (floating)
+   ============================================ */
+
+/* Anchored absolute inside the mindmap containerEL (the viewport), so its
+   position stays viewport-relative and its size is unaffected by canvas
+   zoom. Positioned via inline left/top by HighlightPalette.openForNode. */
+.mm-highlight-palette {
+  position: absolute;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--background-primary, #fff);
+  border: 1px solid var(--background-modifier-border, #ddd);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  z-index: 200;
+}
+.theme-dark .mm-highlight-palette {
+  background: var(--background-primary, #1e1e2e);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.mm-highlight-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mm-highlight-swatch:hover {
+  transform: scale(1.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.mm-highlight-clear {
+  background: var(--background-secondary, #f5f5f5) !important;
+  color: var(--text-muted, #888);
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 600;
+}
+.theme-dark .mm-highlight-clear {
+  background: var(--background-secondary, #2a2a36) !important;
+}
+
+/* Mobile: bigger swatches for fingers. */
+.is-mobile .mm-highlight-swatch {
+  width: 36px;
+  height: 36px;
+}
+.is-mobile .mm-highlight-clear {
+  font-size: 22px;
 }

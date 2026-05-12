@@ -433,6 +433,7 @@ export class MindMapView extends TextFileView implements HoverParent {
   private _mobileUndoBtn: HTMLButtonElement | null = null;
   private _mobileRedoBtn: HTMLButtonElement | null = null;
   private _mobileTrashBtn: HTMLButtonElement | null = null;
+  private _mobileHighlightBtn: HTMLButtonElement | null = null;
   private _mobileRecenterBtn: HTMLButtonElement | null = null;
   private _mobileVVListener: (() => void) | null = null;
   private _mobileSelectionPoller: any = null;
@@ -479,6 +480,14 @@ export class MindMapView extends TextFileView implements HoverParent {
       '<svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>';
     trashBtn.setAttribute('aria-label', 'Delete node');
 
+    // Highlight button — opens the floating color palette near the
+    // selected node. Per-node action; hidden when no node is selected.
+    var highlightBtn = document.createElement('button');
+    highlightBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-highlight');
+    highlightBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>';
+    highlightBtn.setAttribute('aria-label', 'Highlight');
+
     // Recenter button (small, always visible)
     var recenterBtn = document.createElement('button');
     recenterBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-recenter');
@@ -490,6 +499,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     bar.appendChild(undoBtn);
     bar.appendChild(redoBtn);
     bar.appendChild(trashBtn);
+    bar.appendChild(highlightBtn);
     bar.appendChild(recenterBtn);
 
     // Prevent focus transfer from the editing contentEditable on desktop
@@ -505,12 +515,18 @@ export class MindMapView extends TextFileView implements HoverParent {
     undoBtn.addEventListener('mousedown', keepFocus);
     redoBtn.addEventListener('mousedown', keepFocus);
     trashBtn.addEventListener('mousedown', keepFocus);
+    highlightBtn.addEventListener('mousedown', keepFocus);
 
     siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
     childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
     undoBtn.addEventListener('click', () => this.handleMobileUndoRedo('undo'));
     redoBtn.addEventListener('click', () => this.handleMobileUndoRedo('redo'));
     trashBtn.addEventListener('click', () => this.handleMobileDeleteNode());
+    highlightBtn.addEventListener('click', () => {
+      if (this.mindmap && this.mindmap.selectNode) {
+        this.mindmap.openHighlightPalette(this.mindmap.selectNode);
+      }
+    });
     recenterBtn.addEventListener('click', () => {
       if (this.mindmap) this.mindmap.center();
     });
@@ -523,6 +539,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileUndoBtn = undoBtn;
     this._mobileRedoBtn = redoBtn;
     this._mobileTrashBtn = trashBtn;
+    this._mobileHighlightBtn = highlightBtn;
     this._mobileRecenterBtn = recenterBtn;
 
     // Measure safe-area-inset-bottom once (via a hidden probe). Position
@@ -661,6 +678,11 @@ export class MindMapView extends TextFileView implements HoverParent {
     // Child: visible whenever any node is selected (including root).
     if (this._mobileChildBtn) {
       this._mobileChildBtn.style.display = sel ? '' : 'none';
+    }
+    // Highlight: visible whenever any node is selected (including root —
+    // root can be highlighted, since it's just markdown wrap of the text).
+    if (this._mobileHighlightBtn) {
+      this._mobileHighlightBtn.style.display = sel ? '' : 'none';
     }
     // Recenter is always visible (no display toggle needed).
   }
@@ -811,6 +833,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileUndoBtn = null;
     this._mobileRedoBtn = null;
     this._mobileTrashBtn = null;
+    this._mobileHighlightBtn = null;
     this._mobileRecenterBtn = null;
   }
 

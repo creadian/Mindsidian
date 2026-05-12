@@ -391,6 +391,51 @@ export default class Node {
     }
 
 
+    // Apply or remove a colored highlight to the whole node's text by
+    // wrapping data.text in `<mark style="background:#hex;">...</mark>`.
+    // Operates on the whole node (not a sub-selection) — mindmap nodes are
+    // short and "highlight this node" is the natural operation. Inline
+    // HTML is the persistence format because it roundtrips cleanly through
+    // markdown view, reading view, and Obsidian Sync without needing CSS
+    // classes shipped from the plugin.
+    //
+    // color === null  →  strip any existing wrap.
+    // color === '#xx' →  wrap (or re-color an existing wrap).
+    applyHighlight(color: string | null){
+        // If user was editing, commit so data.text is current before we
+        // mutate it. cancelEdit() re-renders contentEl asynchronously via
+        // MarkdownRenderer; we manage the rest after that.
+        if (this.data.isEdit) {
+            this.cancelEdit();
+        }
+        var text = this.data.text || '';
+        // Match a whole-text <mark> wrap. Tolerant of attribute ordering
+        // and the optional trailing semicolon.
+        var wholeMarkRegex = /^<mark\s+style="[^"]*">([\s\S]+)<\/mark>$/;
+        var existing = wholeMarkRegex.exec(text);
+        if (color === null) {
+            if (existing) this.data.text = existing[1];
+            // else: nothing to clear
+        } else {
+            var inner = existing ? existing[1] : text;
+            this.data.text = `<mark style="background:${color};">${inner}</mark>`;
+        }
+        // Re-render contentEl from the new text.
+        this.contentEl.innerHTML = '';
+        this.parseText();
+        // parseText is async (MarkdownRenderer). Defer the relayout + save
+        // so dimensions are computed from the new content.
+        setTimeout(() => {
+            this.boundingRect = null;
+            this.refreshBox();
+            if (this.mindmap) {
+                this.mindmap.refresh();
+                this.mindmap.mindMapChange();
+            }
+        }, 0);
+    }
+
+
     insertWikilink(target: string){
         // Inserts `[[${target}]]` at the current selection / cursor position
         // in the contentEditable. Preserves regular spaces (unlike

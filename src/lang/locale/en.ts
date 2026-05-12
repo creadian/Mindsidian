@@ -90,4 +90,6 @@ export default {
 
     "Insert internal link":"Insert internal link",
     "Select a node first":"Select a node first",
+
+    "Open highlight palette":"Open highlight palette",
 };

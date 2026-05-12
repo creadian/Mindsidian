@@ -1314,6 +1314,27 @@ export default class MindMapPlugin extends Plugin {
       }
     });
 
+    // Open the highlight color palette next to the selected node.
+    // Pick a color → wraps node text in <mark style="background:#hex;">.
+    // Pick × → strips any existing highlight wrap.
+    // No default hotkey: bind in Obsidian → Settings → Hotkeys.
+    this.addCommand({
+      id: 'Open highlight palette',
+      name: `${t('Open highlight palette')}`,
+      checkCallback: (checking: boolean) => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if (!mindmapView) return false;
+        if (checking) return true;
+        var node = mindmapView.mindmap.selectNode;
+        if (!node) {
+          new Notice(`${t('Select a node first')}`);
+          return true;
+        }
+        mindmapView.mindmap.openHighlightPalette(node);
+        return true;
+      }
+    });
+
     // Insert an internal wikilink. Opens a fuzzy file picker; on select,
     // inserts `[[Note name]]` into the selected node — at the cursor if
     // editing, or appended (auto-enters edit mode) if not.

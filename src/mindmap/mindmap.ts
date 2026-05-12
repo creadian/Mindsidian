@@ -1,5 +1,6 @@
 import INode, { INodeData } from './INode'
 import Layout from './Layout'
+import { HighlightPalette } from './HighlightPalette'
 import { Notice, Platform } from 'obsidian'
 import SVG from 'svg.js'
 import { MindMapView } from '../MindMapView'
@@ -89,6 +90,7 @@ export default class MindMap {
     dispLevel:number;
     isComposing = false;
     isFocused = true;
+    highlightPalette: HighlightPalette | null = null;
 
     constructor(data: INodeData, containerEL: HTMLElement, setting?: Setting) {
         this.setting = Object.assign({
@@ -3350,6 +3352,17 @@ export default class MindMap {
         }, this.root, true);
         return md.trim();
     }
+
+    // Open the floating highlight palette near the given node. Lazily
+    // instantiates the palette on first use; the same instance is reused
+    // for subsequent calls.
+    openHighlightPalette(node: INode) {
+        if (!this.highlightPalette) {
+            this.highlightPalette = new HighlightPalette(this);
+        }
+        this.highlightPalette.openForNode(node);
+    }
+
     scale(num: number) {
         if (num < 20) {
             num = 20;

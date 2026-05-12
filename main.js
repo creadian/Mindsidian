@@ -193,6 +193,7 @@ var en = {
     "Tasks are only available for bullet nodes": "Tasks are only available for bullet nodes",
     "Insert internal link": "Insert internal link",
     "Select a node first": "Select a node first",
+    "Open highlight palette": "Open highlight palette",
 };
 
 // British English
@@ -735,6 +736,51 @@ class Node$1 {
             selection.removeAllRanges();
             selection.addRange(range);
         }
+    }
+    // Apply or remove a colored highlight to the whole node's text by
+    // wrapping data.text in `<mark style="background:#hex;">...</mark>`.
+    // Operates on the whole node (not a sub-selection) — mindmap nodes are
+    // short and "highlight this node" is the natural operation. Inline
+    // HTML is the persistence format because it roundtrips cleanly through
+    // markdown view, reading view, and Obsidian Sync without needing CSS
+    // classes shipped from the plugin.
+    //
+    // color === null  →  strip any existing wrap.
+    // color === '#xx' →  wrap (or re-color an existing wrap).
+    applyHighlight(color) {
+        // If user was editing, commit so data.text is current before we
+        // mutate it. cancelEdit() re-renders contentEl asynchronously via
+        // MarkdownRenderer; we manage the rest after that.
+        if (this.data.isEdit) {
+            this.cancelEdit();
+        }
+        var text = this.data.text || '';
+        // Match a whole-text <mark> wrap. Tolerant of attribute ordering
+        // and the optional trailing semicolon.
+        var wholeMarkRegex = /^<mark\s+style="[^"]*">([\s\S]+)<\/mark>$/;
+        var existing = wholeMarkRegex.exec(text);
+        if (color === null) {
+            if (existing)
+                this.data.text = existing[1];
+            // else: nothing to clear
+        }
+        else {
+            var inner = existing ? existing[1] : text;
+            this.data.text = `<mark style="background:${color};">${inner}</mark>`;
+        }
+        // Re-render contentEl from the new text.
+        this.contentEl.innerHTML = '';
+        this.parseText();
+        // parseText is async (MarkdownRenderer). Defer the relayout + save
+        // so dimensions are computed from the new content.
+        setTimeout(() => {
+            this.boundingRect = null;
+            this.refreshBox();
+            if (this.mindmap) {
+                this.mindmap.refresh();
+                this.mindmap.mindMapChange();
+            }
+        }, 0);
     }
     insertWikilink(target) {
         // Inserts `[[${target}]]` at the current selection / cursor position
@@ -1759,6 +1805,112 @@ class Layout {
             c.stroke = this.colors[i] || 'hsl(220, 70%, 55%)';
         });
         createLine(root);
+    }
+}
+
+// Default palette. Inline-style colors (not CSS classes) so the rendered
+// <mark> elements look the same in mindmap view, markdown source, and
+// Obsidian's reading view across light/dark themes.
+const HIGHLIGHT_COLORS = [
+    { name: 'Yellow', hex: '#FFD580' },
+    { name: 'Green', hex: '#A7E8A4' },
+    { name: 'Pink', hex: '#FFB3D1' },
+    { name: 'Blue', hex: '#A4C9F7' },
+    { name: 'Orange', hex: '#FFB088' },
+    { name: 'Purple', hex: '#CDA8E6' },
+];
+// Floating palette of color swatches that appears next to the selected
+// node. Click a swatch → wraps the node's text in <mark style="...">.
+// Click × → strips the wrap. Click outside → close.
+//
+// Attached to mindmap.containerEL (the viewport), not appEl (the canvas),
+// so it stays a constant visual size regardless of mindmap zoom.
+class HighlightPalette {
+    constructor(mindmap) {
+        this.isOpen = false;
+        this.currentNode = null;
+        this.mindmap = mindmap;
+        var doc = mindmap.containerEL.ownerDocument || document;
+        this.el = doc.createElement('div');
+        this.el.classList.add('mm-highlight-palette');
+        this.el.style.display = 'none';
+        mindmap.containerEL.appendChild(this.el);
+        HIGHLIGHT_COLORS.forEach((c) => {
+            var swatch = doc.createElement('button');
+            swatch.classList.add('mm-highlight-swatch');
+            swatch.style.background = c.hex;
+            swatch.setAttribute('aria-label', `Highlight ${c.name}`);
+            swatch.setAttribute('title', c.name);
+            swatch.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.pick(c.hex);
+            });
+            // Prevent the mousedown from blurring an in-flight contentEditable
+            // (so applyHighlight's cancelEdit captures the latest text).
+            swatch.addEventListener('mousedown', (e) => e.stopPropagation());
+            this.el.appendChild(swatch);
+        });
+        var clear = doc.createElement('button');
+        clear.classList.add('mm-highlight-swatch', 'mm-highlight-clear');
+        clear.textContent = '×';
+        clear.setAttribute('aria-label', 'Remove highlight');
+        clear.setAttribute('title', 'Remove highlight');
+        clear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.pick(null);
+        });
+        clear.addEventListener('mousedown', (e) => e.stopPropagation());
+        this.el.appendChild(clear);
+        this.outsideClickHandler = (e) => {
+            if (this.isOpen && !this.el.contains(e.target)) {
+                this.close();
+            }
+        };
+    }
+    openForNode(node) {
+        this.currentNode = node;
+        var nodeRect = node.containEl.getBoundingClientRect();
+        var crect = this.mindmap.containerEL.getBoundingClientRect();
+        // Below the node, aligned to its left edge. Clamp into viewport
+        // if the node sits near the right edge.
+        var top = nodeRect.bottom - crect.top + 8;
+        var left = nodeRect.left - crect.left;
+        // Display first so we can measure the palette width.
+        this.el.style.display = 'flex';
+        var paletteWidth = this.el.offsetWidth;
+        var maxLeft = this.mindmap.containerEL.clientWidth - paletteWidth - 8;
+        if (left > maxLeft)
+            left = maxLeft;
+        if (left < 8)
+            left = 8;
+        this.el.style.left = `${left}px`;
+        this.el.style.top = `${top}px`;
+        this.isOpen = true;
+        // Defer attaching the outside-click listener until after the
+        // current click cycle, otherwise the very click that opened the
+        // palette would close it.
+        var doc = this.mindmap.containerEL.ownerDocument || document;
+        setTimeout(() => {
+            doc.addEventListener('click', this.outsideClickHandler, true);
+        }, 0);
+    }
+    close() {
+        this.el.style.display = 'none';
+        this.isOpen = false;
+        this.currentNode = null;
+        var doc = this.mindmap.containerEL.ownerDocument || document;
+        doc.removeEventListener('click', this.outsideClickHandler, true);
+    }
+    pick(color) {
+        if (this.currentNode) {
+            this.currentNode.applyHighlight(color);
+        }
+        this.close();
+    }
+    destroy() {
+        this.close();
+        if (this.el.parentNode)
+            this.el.parentNode.removeChild(this.el);
     }
 }
 
@@ -8125,6 +8277,7 @@ class MindMap {
         this._dragType = '';
         this.isComposing = false;
         this.isFocused = true;
+        this.highlightPalette = null;
         // --- Mobile touch handlers ---
         // Panning: 100% native iOS scrolling (smooth, 120Hz, hardware-accelerated).
         // Edit mode: manual double-tap detector (in appTouchStart) — more reliable
@@ -10923,6 +11076,15 @@ class MindMap {
             }
         }, this.root, true);
         return md.trim();
+    }
+    // Open the floating highlight palette near the given node. Lazily
+    // instantiates the palette on first use; the same instance is reused
+    // for subsequent calls.
+    openHighlightPalette(node) {
+        if (!this.highlightPalette) {
+            this.highlightPalette = new HighlightPalette(this);
+        }
+        this.highlightPalette.openForNode(node);
     }
     scale(num) {
         if (num < 20) {
@@ -39979,6 +40141,7 @@ class MindMapView extends obsidian.TextFileView {
         this._mobileUndoBtn = null;
         this._mobileRedoBtn = null;
         this._mobileTrashBtn = null;
+        this._mobileHighlightBtn = null;
         this._mobileRecenterBtn = null;
         this._mobileVVListener = null;
         this._mobileSelectionPoller = null;
@@ -40061,6 +40224,13 @@ class MindMapView extends obsidian.TextFileView {
         trashBtn.innerHTML =
             '<svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path></svg>';
         trashBtn.setAttribute('aria-label', 'Delete node');
+        // Highlight button — opens the floating color palette near the
+        // selected node. Per-node action; hidden when no node is selected.
+        var highlightBtn = document.createElement('button');
+        highlightBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-highlight');
+        highlightBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" width="58%" height="58%" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>';
+        highlightBtn.setAttribute('aria-label', 'Highlight');
         // Recenter button (small, always visible)
         var recenterBtn = document.createElement('button');
         recenterBtn.classList.add('mm-mobile-action-btn', 'mm-mobile-action-recenter');
@@ -40071,6 +40241,7 @@ class MindMapView extends obsidian.TextFileView {
         bar.appendChild(undoBtn);
         bar.appendChild(redoBtn);
         bar.appendChild(trashBtn);
+        bar.appendChild(highlightBtn);
         bar.appendChild(recenterBtn);
         // Prevent focus transfer from the editing contentEditable on desktop
         // mousedown. NOT on touchstart — iOS uses touchstart→touchend to
@@ -40085,11 +40256,17 @@ class MindMapView extends obsidian.TextFileView {
         undoBtn.addEventListener('mousedown', keepFocus);
         redoBtn.addEventListener('mousedown', keepFocus);
         trashBtn.addEventListener('mousedown', keepFocus);
+        highlightBtn.addEventListener('mousedown', keepFocus);
         siblingBtn.addEventListener('click', () => this.handleMobileAddNode('sibling'));
         childBtn.addEventListener('click', () => this.handleMobileAddNode('child'));
         undoBtn.addEventListener('click', () => this.handleMobileUndoRedo('undo'));
         redoBtn.addEventListener('click', () => this.handleMobileUndoRedo('redo'));
         trashBtn.addEventListener('click', () => this.handleMobileDeleteNode());
+        highlightBtn.addEventListener('click', () => {
+            if (this.mindmap && this.mindmap.selectNode) {
+                this.mindmap.openHighlightPalette(this.mindmap.selectNode);
+            }
+        });
         recenterBtn.addEventListener('click', () => {
             if (this.mindmap)
                 this.mindmap.center();
@@ -40101,6 +40278,7 @@ class MindMapView extends obsidian.TextFileView {
         this._mobileUndoBtn = undoBtn;
         this._mobileRedoBtn = redoBtn;
         this._mobileTrashBtn = trashBtn;
+        this._mobileHighlightBtn = highlightBtn;
         this._mobileRecenterBtn = recenterBtn;
         // Measure safe-area-inset-bottom once (via a hidden probe). Position
         // math in updateMobileBarPosition() combines this with the user's
@@ -40241,6 +40419,11 @@ class MindMapView extends obsidian.TextFileView {
         // Child: visible whenever any node is selected (including root).
         if (this._mobileChildBtn) {
             this._mobileChildBtn.style.display = sel ? '' : 'none';
+        }
+        // Highlight: visible whenever any node is selected (including root —
+        // root can be highlighted, since it's just markdown wrap of the text).
+        if (this._mobileHighlightBtn) {
+            this._mobileHighlightBtn.style.display = sel ? '' : 'none';
         }
         // Recenter is always visible (no display toggle needed).
     }
@@ -40385,6 +40568,7 @@ class MindMapView extends obsidian.TextFileView {
         this._mobileUndoBtn = null;
         this._mobileRedoBtn = null;
         this._mobileTrashBtn = null;
+        this._mobileHighlightBtn = null;
         this._mobileRecenterBtn = null;
     }
     onClose() {
@@ -42388,6 +42572,28 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (mindmapView) {
                         mindmapView.exportToPng(4);
                     }
+                }
+            });
+            // Open the highlight color palette next to the selected node.
+            // Pick a color → wraps node text in <mark style="background:#hex;">.
+            // Pick × → strips any existing highlight wrap.
+            // No default hotkey: bind in Obsidian → Settings → Hotkeys.
+            this.addCommand({
+                id: 'Open highlight palette',
+                name: `${t('Open highlight palette')}`,
+                checkCallback: (checking) => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (!mindmapView)
+                        return false;
+                    if (checking)
+                        return true;
+                    var node = mindmapView.mindmap.selectNode;
+                    if (!node) {
+                        new obsidian.Notice(`${t('Select a node first')}`);
+                        return true;
+                    }
+                    mindmapView.mindmap.openHighlightPalette(node);
+                    return true;
                 }
             });
             // Insert an internal wikilink. Opens a fuzzy file picker; on select,
