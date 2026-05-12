@@ -39583,6 +39583,7 @@ class MindMapView extends obsidian.TextFileView {
     // EARLY — i.e. while the new node is still some distance above the bar —
     // not at the last moment.
     scrollNodeIntoViewMobile(node) {
+        var _a, _b;
         if (!this.mindmap || !node)
             return;
         var container = this.mindmap.containerEL;
@@ -39601,10 +39602,17 @@ class MindMapView extends obsidian.TextFileView {
         var visibleY = pos.y * scale + oy * (1 - scale) - container.scrollTop;
         var visibleW = dim.x * scale;
         var visibleH = dim.y * scale;
-        // Reserved zones — generous so scroll happens proactively, not reactively.
-        // Bottom: ~iPhone keyboard (300) + bar (90) + margin so siblings show with
-        // breathing room. Right: 120 keeps a chunk of space past new children.
-        var bottomReserved = 400;
+        // Bottom reserve: compute the bar's expected position WITH the keyboard
+        // visible (since we're about to call edit() which raises it), then keep
+        // the node a small clearance above the bar's top. Mirrors the math used
+        // in updateMobileBarPosition() so the two stay in sync.
+        var vv = window.visualViewport;
+        var rawOffset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+        var effectiveOffset = rawOffset > 50 ? rawOffset : 270;
+        var offWith = (_a = this.plugin.settings.mobileBarOffsetWithKeyboard) !== null && _a !== void 0 ? _a : 100;
+        var expectedBarBottom = effectiveOffset + offWith * 2 - 413;
+        var barHeight = ((_b = this.plugin.settings.mobileActionBarSize) !== null && _b !== void 0 ? _b : 56) + 32;
+        var bottomReserved = Math.max(120, expectedBarBottom + barHeight + 40);
         var rightPad = 120;
         var scrollDx = 0;
         var scrollDy = 0;
