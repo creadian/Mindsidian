@@ -69,7 +69,9 @@
 
 .mm-node .mm-node-content {
   padding: 6px 12px;
-  max-width: 800px;
+  /* Set in JS via MindMapView.applyNodeMaxWidth() based on the user's
+     desktop/mobile setting. 800px fallback matches the old hardcoded value. */
+  max-width: var(--mm-node-max-width, 800px);
   word-break: break-word;
   border-radius: 8px;
 }

@@ -618,6 +618,28 @@ export class MindMapView extends TextFileView implements HoverParent {
     this._mobileActionBar.style.bottom = `${bottom}px`;
   }
 
+  // Apply the user's node-max-width setting (separate values for desktop
+  // vs mobile) to this view via a CSS variable on contentEl.
+  applyNodeMaxWidth() {
+    if (!this.contentEl) return;
+    var width = Platform.isMobile
+      ? (this.plugin.settings.nodeMaxWidthMobile ?? 300)
+      : (this.plugin.settings.nodeMaxWidthDesktop ?? 800);
+    width = Math.max(80, Math.min(2000, width));
+    this.contentEl.style.setProperty('--mm-node-max-width', `${width}px`);
+  }
+
+  // Force every node to re-measure its bounding rect with the new max-width
+  // and re-layout the whole map. Used by the settings change handler.
+  refreshAfterNodeMaxWidthChange() {
+    if (!this.mindmap) return;
+    this.mindmap.traverseBF((n: any) => {
+      n.boundingRect = null;
+      if (typeof n.refreshBox === 'function') n.refreshBox();
+    });
+    this.mindmap.refresh();
+  }
+
   applyMobileActionBarStyle() {
     if (!this._mobileActionBar) return;
     var size = Math.max(24, Math.min(100, this.plugin.settings.mobileActionBarSize ?? 56));
@@ -813,6 +835,7 @@ export class MindMapView extends TextFileView implements HoverParent {
       this.initMobileActionBar();
     }
     this.applyMobileActionBarStyle();
+    this.applyNodeMaxWidth();
     if (this.firstInit) {
 
       setTimeout(() => {

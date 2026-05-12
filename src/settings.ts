@@ -38,4 +38,9 @@ export class MindMapSettings {
     // keyboard which the WebView clips to invisible, so we don't allow them.
     // 0 = bar at keyboard top (lowest visible); 200 = 200px above keyboard.
     mobileBarOffsetWithKeyboard: number = 100;
+    // Max width (px) of a node before its text wraps to a new line. Separate
+    // values for desktop and mobile since screen real estate differs a lot.
+    // Applied via CSS var --mm-node-max-width on each view's contentEl.
+    nodeMaxWidthDesktop: number = 800;
+    nodeMaxWidthMobile: number = 300;
 }

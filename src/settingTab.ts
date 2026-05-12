@@ -286,6 +286,52 @@ export class MindMapSettingsTab extends PluginSettingTab {
                     }));
 
         new Setting(containerEl)
+            .setName('Node max width — desktop (px)')
+            .setDesc(
+                'Maximum width of a node before its text wraps to a new line, on desktop. ' +
+                'Range 80-2000; default 800.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.nodeMaxWidthDesktop ?? 800).toString())
+                    .setPlaceholder('Example: 800')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.nodeMaxWidthDesktop = Math.max(80, Math.min(2000, n));
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            var v = leaf.view as MindMapView;
+                            v.applyNodeMaxWidth?.();
+                            v.refreshAfterNodeMaxWidthChange?.();
+                        });
+                    }));
+
+        new Setting(containerEl)
+            .setName('Node max width — mobile (px)')
+            .setDesc(
+                'Maximum width of a node before its text wraps to a new line, on mobile. ' +
+                'Range 80-2000; default 300.',
+            )
+            .addText(text =>
+                text
+                    .setValue((this.plugin.settings.nodeMaxWidthMobile ?? 300).toString())
+                    .setPlaceholder('Example: 300')
+                    .onChange((value: string) => {
+                        var n = Number.parseInt(value);
+                        if (isNaN(n)) return;
+                        this.plugin.settings.nodeMaxWidthMobile = Math.max(80, Math.min(2000, n));
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            var v = leaf.view as MindMapView;
+                            v.applyNodeMaxWidth?.();
+                            v.refreshAfterNodeMaxWidthChange?.();
+                        });
+                    }));
+
+        new Setting(containerEl)
             .setName('Fold state persistence')
             .setDesc(
                 'How to remember which branches you collapsed across reloads. ' +

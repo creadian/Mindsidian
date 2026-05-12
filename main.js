@@ -39455,6 +39455,30 @@ class MindMapView extends obsidian.TextFileView {
         }
         this._mobileActionBar.style.bottom = `${bottom}px`;
     }
+    // Apply the user's node-max-width setting (separate values for desktop
+    // vs mobile) to this view via a CSS variable on contentEl.
+    applyNodeMaxWidth() {
+        var _a, _b;
+        if (!this.contentEl)
+            return;
+        var width = obsidian.Platform.isMobile
+            ? ((_a = this.plugin.settings.nodeMaxWidthMobile) !== null && _a !== void 0 ? _a : 300)
+            : ((_b = this.plugin.settings.nodeMaxWidthDesktop) !== null && _b !== void 0 ? _b : 800);
+        width = Math.max(80, Math.min(2000, width));
+        this.contentEl.style.setProperty('--mm-node-max-width', `${width}px`);
+    }
+    // Force every node to re-measure its bounding rect with the new max-width
+    // and re-layout the whole map. Used by the settings change handler.
+    refreshAfterNodeMaxWidthChange() {
+        if (!this.mindmap)
+            return;
+        this.mindmap.traverseBF((n) => {
+            n.boundingRect = null;
+            if (typeof n.refreshBox === 'function')
+                n.refreshBox();
+        });
+        this.mindmap.refresh();
+    }
     applyMobileActionBarStyle() {
         var _a, _b;
         if (!this._mobileActionBar)
@@ -39638,6 +39662,7 @@ class MindMapView extends obsidian.TextFileView {
             this.initMobileActionBar();
         }
         this.applyMobileActionBarStyle();
+        this.applyNodeMaxWidth();
         if (this.firstInit) {
             setTimeout(() => {
                 var leaf = this.leaf;
@@ -40183,6 +40208,54 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
                 mindmapLeaves.forEach((leaf) => {
                     var _a, _b;
                     (_b = (_a = leaf.view).updateMobileBarPosition) === null || _b === void 0 ? void 0 : _b.call(_a);
+                });
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName('Node max width — desktop (px)')
+            .setDesc('Maximum width of a node before its text wraps to a new line, on desktop. ' +
+            'Range 80-2000; default 800.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.nodeMaxWidthDesktop) !== null && _a !== void 0 ? _a : 800).toString())
+                .setPlaceholder('Example: 800')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.nodeMaxWidthDesktop = Math.max(80, Math.min(2000, n));
+                this.plugin.saveData(this.plugin.settings);
+                const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                mindmapLeaves.forEach((leaf) => {
+                    var _a, _b;
+                    var v = leaf.view;
+                    (_a = v.applyNodeMaxWidth) === null || _a === void 0 ? void 0 : _a.call(v);
+                    (_b = v.refreshAfterNodeMaxWidthChange) === null || _b === void 0 ? void 0 : _b.call(v);
+                });
+            });
+        });
+        new obsidian.Setting(containerEl)
+            .setName('Node max width — mobile (px)')
+            .setDesc('Maximum width of a node before its text wraps to a new line, on mobile. ' +
+            'Range 80-2000; default 300.')
+            .addText(text => {
+            var _a;
+            return text
+                .setValue(((_a = this.plugin.settings.nodeMaxWidthMobile) !== null && _a !== void 0 ? _a : 300).toString())
+                .setPlaceholder('Example: 300')
+                .onChange((value) => {
+                var n = Number.parseInt(value);
+                if (isNaN(n))
+                    return;
+                this.plugin.settings.nodeMaxWidthMobile = Math.max(80, Math.min(2000, n));
+                this.plugin.saveData(this.plugin.settings);
+                const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                mindmapLeaves.forEach((leaf) => {
+                    var _a, _b;
+                    var v = leaf.view;
+                    (_a = v.applyNodeMaxWidth) === null || _a === void 0 ? void 0 : _a.call(v);
+                    (_b = v.refreshAfterNodeMaxWidthChange) === null || _b === void 0 ? void 0 : _b.call(v);
                 });
             });
         });
