@@ -15,6 +15,7 @@ import { MindMapSettingsTab } from './settingTab'
 import { MindMapView, mindmapViewType } from "./MindMapView";
 import { frontMatterKey, basicFrontmatter } from './constants';
 import { t } from './lang/helpers'
+import { MindLinkSuggestModal } from './mindmap/MindLinkSuggestModal';
 
 
 export default class MindMapPlugin extends Plugin {
@@ -1310,6 +1311,70 @@ export default class MindMapPlugin extends Plugin {
         if(mindmapView){
             mindmapView.exportToPng(4);
         }
+      }
+    });
+
+    // Insert an internal wikilink. Opens a fuzzy file picker; on select,
+    // inserts `[[Note name]]` into the selected node — at the cursor if
+    // editing, or appended (auto-enters edit mode) if not.
+    // No default hotkey: bind in Obsidian → Settings → Hotkeys.
+    this.addCommand({
+      id: 'Insert internal link',
+      name: `${t('Insert internal link')}`,
+      checkCallback: (checking: boolean) => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if (!mindmapView) return false;
+        if (checking) return true;
+        var mindmap = mindmapView.mindmap;
+        var node = mindmap.selectNode;
+        if (!node) {
+          new Notice(`${t('Select a node first')}`);
+          return true;
+        }
+
+        // Preserve any in-flight edit cursor: the modal will blur the
+        // contentEditable. Save the current range so we can restore it.
+        var savedRange: Range | null = null;
+        if (node.data.isEdit) {
+          var savedDoc = node.contentEl.ownerDocument || document;
+          var savedWin = savedDoc.defaultView || window;
+          var savedSel = savedWin.getSelection();
+          if (savedSel && savedSel.rangeCount > 0) {
+            savedRange = savedSel.getRangeAt(0).cloneRange();
+          }
+        }
+
+        new MindLinkSuggestModal(this.app, (file) => {
+          if (!node.data.isEdit) {
+            // Enter edit mode. node.edit() rebuilds the contentEditable
+            // from data.text and focuses it; cursor selects all text via
+            // selectText(). Collapse to the end so we append rather than
+            // overwrite.
+            node.edit();
+            var d2 = node.contentEl.ownerDocument || document;
+            var w2 = d2.defaultView || window;
+            var s2 = w2.getSelection();
+            if (s2 && s2.rangeCount > 0) {
+              var r2 = s2.getRangeAt(0);
+              r2.collapse(false);
+              s2.removeAllRanges();
+              s2.addRange(r2);
+            }
+          } else if (savedRange) {
+            var d3 = node.contentEl.ownerDocument || document;
+            var w3 = d3.defaultView || window;
+            var s3 = w3.getSelection();
+            node.contentEl.focus();
+            if (s3) {
+              s3.removeAllRanges();
+              s3.addRange(savedRange);
+            }
+          }
+
+          node.insertWikilink(file.basename);
+        }).open();
+
+        return true;
       }
     });
 

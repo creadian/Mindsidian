@@ -391,6 +391,46 @@ export default class Node {
     }
 
 
+    insertWikilink(target: string){
+        // Inserts `[[${target}]]` at the current selection / cursor position
+        // in the contentEditable. Preserves regular spaces (unlike
+        // insertText() above which nbsp-mangles them \u2014 that's needed for
+        // formatting markers, not links). Caller is responsible for
+        // ensuring edit mode is active and the selection is inside this
+        // node's contentEl.
+        var literal = `[[${target}]]`;
+        var doc = this.contentEl.ownerDocument || document;
+        var win = doc.defaultView || window;
+        var sel = win.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            // No selection \u2014 append to the end and move cursor after.
+            var endRange = doc.createRange();
+            endRange.selectNodeContents(this.contentEl);
+            endRange.collapse(false);
+            var appendNode = doc.createTextNode(literal);
+            endRange.insertNode(appendNode);
+            if (sel) {
+                sel.removeAllRanges();
+                var afterAppend = doc.createRange();
+                afterAppend.setStartAfter(appendNode);
+                afterAppend.collapse(true);
+                sel.addRange(afterAppend);
+            }
+            return;
+        }
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        var textNode = doc.createTextNode(literal);
+        range.insertNode(textNode);
+        // Place cursor after the inserted link so the user can keep typing.
+        var afterLink = doc.createRange();
+        afterLink.setStartAfter(textNode);
+        afterLink.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(afterLink);
+    }
+
+
     insertText(i_str_1: string) {
         // Replace regular spaces with non-breaking spaces
         const formattedText = i_str_1.replace(/ /g, '\u00A0');

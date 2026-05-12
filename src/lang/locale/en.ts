@@ -87,4 +87,7 @@ export default {
 
     "Toggle task state":"Toggle task state",
     "Tasks are only available for bullet nodes":"Tasks are only available for bullet nodes",
+
+    "Insert internal link":"Insert internal link",
+    "Select a node first":"Select a node first",
 };

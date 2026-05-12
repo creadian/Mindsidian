@@ -191,6 +191,8 @@ var en = {
     "Export to JPEG (LQ)": "Export to JPEG (LQ)",
     "Toggle task state": "Toggle task state",
     "Tasks are only available for bullet nodes": "Tasks are only available for bullet nodes",
+    "Insert internal link": "Insert internal link",
+    "Select a node first": "Select a node first",
 };
 
 // British English
@@ -733,6 +735,44 @@ class Node$1 {
             selection.removeAllRanges();
             selection.addRange(range);
         }
+    }
+    insertWikilink(target) {
+        // Inserts `[[${target}]]` at the current selection / cursor position
+        // in the contentEditable. Preserves regular spaces (unlike
+        // insertText() above which nbsp-mangles them \u2014 that's needed for
+        // formatting markers, not links). Caller is responsible for
+        // ensuring edit mode is active and the selection is inside this
+        // node's contentEl.
+        var literal = `[[${target}]]`;
+        var doc = this.contentEl.ownerDocument || document;
+        var win = doc.defaultView || window;
+        var sel = win.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            // No selection \u2014 append to the end and move cursor after.
+            var endRange = doc.createRange();
+            endRange.selectNodeContents(this.contentEl);
+            endRange.collapse(false);
+            var appendNode = doc.createTextNode(literal);
+            endRange.insertNode(appendNode);
+            if (sel) {
+                sel.removeAllRanges();
+                var afterAppend = doc.createRange();
+                afterAppend.setStartAfter(appendNode);
+                afterAppend.collapse(true);
+                sel.addRange(afterAppend);
+            }
+            return;
+        }
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        var textNode = doc.createTextNode(literal);
+        range.insertNode(textNode);
+        // Place cursor after the inserted link so the user can keep typing.
+        var afterLink = doc.createRange();
+        afterLink.setStartAfter(textNode);
+        afterLink.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(afterLink);
     }
     insertText(i_str_1) {
         // Replace regular spaces with non-breaking spaces
@@ -41048,6 +41088,28 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
     }
 }
 
+// Fuzzy file picker for "Insert internal link" command. Lists all markdown
+// files in the vault. The chosen file is passed to onPick, which inserts a
+// [[basename]] wikilink into the active mindmap node.
+class MindLinkSuggestModal extends obsidian.FuzzySuggestModal {
+    constructor(app, onPick) {
+        super(app);
+        this.onPick = onPick;
+        this.setPlaceholder('Type to search notes…');
+    }
+    getItems() {
+        return this.app.vault.getMarkdownFiles();
+    }
+    getItemText(file) {
+        // Concatenating basename + path makes fuzzy matching hit both,
+        // mirroring Obsidian's own link picker.
+        return `${file.basename} ${file.path}`;
+    }
+    onChooseItem(file, _evt) {
+        this.onPick(file);
+    }
+}
+
 class MindMapPlugin extends obsidian.Plugin {
     constructor() {
         super(...arguments);
@@ -42326,6 +42388,68 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (mindmapView) {
                         mindmapView.exportToPng(4);
                     }
+                }
+            });
+            // Insert an internal wikilink. Opens a fuzzy file picker; on select,
+            // inserts `[[Note name]]` into the selected node — at the cursor if
+            // editing, or appended (auto-enters edit mode) if not.
+            // No default hotkey: bind in Obsidian → Settings → Hotkeys.
+            this.addCommand({
+                id: 'Insert internal link',
+                name: `${t('Insert internal link')}`,
+                checkCallback: (checking) => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (!mindmapView)
+                        return false;
+                    if (checking)
+                        return true;
+                    var mindmap = mindmapView.mindmap;
+                    var node = mindmap.selectNode;
+                    if (!node) {
+                        new obsidian.Notice(`${t('Select a node first')}`);
+                        return true;
+                    }
+                    // Preserve any in-flight edit cursor: the modal will blur the
+                    // contentEditable. Save the current range so we can restore it.
+                    var savedRange = null;
+                    if (node.data.isEdit) {
+                        var savedDoc = node.contentEl.ownerDocument || document;
+                        var savedWin = savedDoc.defaultView || window;
+                        var savedSel = savedWin.getSelection();
+                        if (savedSel && savedSel.rangeCount > 0) {
+                            savedRange = savedSel.getRangeAt(0).cloneRange();
+                        }
+                    }
+                    new MindLinkSuggestModal(this.app, (file) => {
+                        if (!node.data.isEdit) {
+                            // Enter edit mode. node.edit() rebuilds the contentEditable
+                            // from data.text and focuses it; cursor selects all text via
+                            // selectText(). Collapse to the end so we append rather than
+                            // overwrite.
+                            node.edit();
+                            var d2 = node.contentEl.ownerDocument || document;
+                            var w2 = d2.defaultView || window;
+                            var s2 = w2.getSelection();
+                            if (s2 && s2.rangeCount > 0) {
+                                var r2 = s2.getRangeAt(0);
+                                r2.collapse(false);
+                                s2.removeAllRanges();
+                                s2.addRange(r2);
+                            }
+                        }
+                        else if (savedRange) {
+                            var d3 = node.contentEl.ownerDocument || document;
+                            var w3 = d3.defaultView || window;
+                            var s3 = w3.getSelection();
+                            node.contentEl.focus();
+                            if (s3) {
+                                s3.removeAllRanges();
+                                s3.addRange(savedRange);
+                            }
+                        }
+                        node.insertWikilink(file.basename);
+                    }).open();
+                    return true;
                 }
             });
             // Toggle the selected node's task state: none → todo → done → none.
