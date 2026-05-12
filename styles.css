@@ -485,3 +485,44 @@
   transform: translate(-50%, -50%);
   border-radius: 50%;
 }
+
+/* ============================================
+   Task checkboxes (Obsidian-style "- [ ]" / "- [x]" task lists)
+   ============================================ */
+
+/* The checkbox is inserted INSIDE the rendered markdown's first block
+   element (usually <p>) so it flows inline with the text baseline.
+   No flex layout — keeps box dimensions predictable across re-renders. */
+.mm-task .mm-task-checkbox {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  margin: 0 6px 0 0;
+  vertical-align: middle;
+  cursor: pointer;
+  accent-color: var(--interactive-accent, #6366f1);
+  width: 14px;
+  height: 14px;
+  position: relative;
+  /* Nudge the checkbox down a hair to line up with text x-height
+     rather than the cap-height of the first letter. */
+  top: -1px;
+}
+
+/* Mobile: bigger checkboxes for finger tapping. */
+.is-mobile .mm-task .mm-task-checkbox {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+}
+
+/* Done state: muted color + strikethrough on the rendered text. The
+   checkbox itself is unaffected. */
+.mm-task.mm-task-done .mm-node-content {
+  text-decoration: line-through;
+  color: var(--text-muted, #888);
+  opacity: 0.85;
+}
+.mm-task.mm-task-done .mm-task-checkbox {
+  text-decoration: none;
+  opacity: 1;
+}

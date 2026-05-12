@@ -84,4 +84,7 @@ export default {
     "Export to JPEG (HQ)":"Export to JPEG (HQ)",
     "Export to PNG (LQ)":"Export to PNG (LQ)",
     "Export to JPEG (LQ)":"Export to JPEG (LQ)",
+
+    "Toggle task state":"Toggle task state",
+    "Tasks are only available for bullet nodes":"Tasks are only available for bullet nodes",
 };

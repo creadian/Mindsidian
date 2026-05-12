@@ -189,6 +189,8 @@ var en = {
     "Export to JPEG (HQ)": "Export to JPEG (HQ)",
     "Export to PNG (LQ)": "Export to PNG (LQ)",
     "Export to JPEG (LQ)": "Export to JPEG (LQ)",
+    "Toggle task state": "Toggle task state",
+    "Tasks are only available for bullet nodes": "Tasks are only available for bullet nodes",
 };
 
 // British English
@@ -481,10 +483,81 @@ class Node$1 {
         }
         obsidian.MarkdownRenderer.renderMarkdown(this.data.text, this.contentEl, this.mindmap.path || "", null).then(() => {
             this.data.mdText = this.contentEl.innerHTML;
+            this.renderTaskCheckbox();
             this.refreshBox();
             this.mindmap && this.mindmap.emit('initNode', {});
             this._delay();
         });
+    }
+    renderTaskCheckbox() {
+        // Idempotent: remove any prior checkbox + task classes so this
+        // method can be called from parseText, the hotkey, AND a re-render.
+        var prior = this.contentEl.querySelectorAll('.mm-task-checkbox');
+        prior.forEach((el) => el.remove());
+        this.containEl.classList.remove('mm-task');
+        this.containEl.classList.remove('mm-task-done');
+        var taskState = this.data.taskState;
+        if (taskState !== 'todo' && taskState !== 'done')
+            return;
+        var doc = this.contentEl.ownerDocument || document;
+        var checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.classList.add('mm-task-checkbox');
+        checkbox.checked = (taskState === 'done');
+        // Stop the activation from reaching the node's select/edit handlers.
+        // Click does a binary todo↔done toggle (does NOT remove the task).
+        // To remove, use the "Toggle task state" hotkey which cycles through none.
+        checkbox.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            this.toggleTaskChecked();
+        });
+        checkbox.addEventListener('mousedown', (e) => e.stopPropagation());
+        checkbox.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+        // Insert the checkbox INSIDE the first block-level element rendered
+        // by MarkdownRenderer (usually <p>) so it flows inline with the text
+        // baseline. Falls back to inserting at the start of contentEl if
+        // the rendered markdown didn't produce a block child (rare).
+        var firstBlock = this.contentEl.firstElementChild;
+        if (firstBlock) {
+            firstBlock.insertBefore(checkbox, firstBlock.firstChild);
+        }
+        else {
+            this.contentEl.insertBefore(checkbox, this.contentEl.firstChild);
+        }
+        this.containEl.classList.add('mm-task');
+        if (taskState === 'done')
+            this.containEl.classList.add('mm-task-done');
+    }
+    // Hotkey path: cycle regular → todo → done → regular.
+    toggleTaskState() {
+        var current = this.data.taskState;
+        var next;
+        if (current === 'todo')
+            next = 'done';
+        else if (current === 'done')
+            next = undefined;
+        else
+            next = 'todo';
+        this.data.taskState = next;
+        this.renderTaskCheckbox();
+        this.refreshBox();
+        this.boundingRect = null;
+        if (this.mindmap) {
+            this.mindmap.refresh();
+            this.mindmap.mindMapChange();
+        }
+    }
+    // Click-on-checkbox path: binary toggle, never removes the task.
+    toggleTaskChecked() {
+        var current = this.data.taskState;
+        this.data.taskState = (current === 'done') ? 'todo' : 'done';
+        this.renderTaskCheckbox();
+        this.refreshBox();
+        this.boundingRect = null;
+        if (this.mindmap) {
+            this.mindmap.refresh();
+            this.mindmap.mindMapChange();
+        }
     }
     _delay() {
         //parse md
@@ -835,10 +908,20 @@ class Node$1 {
         if (text.length == 0) {
             text = this._oldText;
         }
+        // If the user typed an Obsidian-style task prefix into edit mode
+        // ("[ ] foo" / "[x] foo"), promote it to taskState and strip the
+        // bracket from the stored text. Existing taskState persists if no
+        // prefix is present (user just edited the text of a task node).
+        var taskMatch = /^\[([ xX])\]\s+/.exec(text);
+        if (taskMatch) {
+            this.data.taskState = (taskMatch[1] === ' ') ? 'todo' : 'done';
+            text = text.slice(taskMatch[0].length);
+        }
         this.data.text = text;
         this.contentEl.innerText = '';
         obsidian.MarkdownRenderer.renderMarkdown(text, this.contentEl, this.mindmap.path || "", null).then(() => {
             this.data.mdText = this.contentEl.innerHTML;
+            this.renderTaskCheckbox();
             this.refreshBox();
             this._delay();
         });
@@ -10751,11 +10834,20 @@ class MindMap {
                     space += '\t';
                 }
                 var text = n.getData().text.trim();
+                // Task checkbox prefix (bullet branch only; headings drop it).
+                // For multi-line text, only the first emitted line carries
+                // the prefix — matches how Obsidian renders task lists.
+                var taskState = n.getData().taskState;
+                var taskPrefix = '';
+                if (taskState === 'todo')
+                    taskPrefix = '[ ] ';
+                else if (taskState === 'done')
+                    taskPrefix = '[x] ';
                 if (text) {
                     var textArr = text.split('\n');
                     var lineLength = textArr.length;
                     if (lineLength == 1) {
-                        md += `${space}- ${text}${ending}\n`;
+                        md += `${space}- ${taskPrefix}${text}${ending}\n`;
                     }
                     else if (lineLength > 1) {
                         //code
@@ -10769,10 +10861,14 @@ class MindMap {
                         }
                         else {
                             // Each line becomes its own bullet at the same level
+                            // (first line only carries the task prefix).
+                            var firstEmitted = true;
                             textArr.forEach((t, i) => {
                                 var contentText = t.trim();
                                 if (contentText.length > 0) {
-                                    md += `${space}- ${contentText}${i === textArr.length - 1 ? ending : ''}\n`;
+                                    var prefix = firstEmitted ? taskPrefix : '';
+                                    firstEmitted = false;
+                                    md += `${space}- ${prefix}${contentText}${i === textArr.length - 1 ? ending : ''}\n`;
                                 }
                             });
                         }
@@ -40566,6 +40662,16 @@ class MindMapView extends obsidian.TextFileView {
                 children: [],
                 expanded: id ? false : true
             };
+            // Obsidian-style task checkbox: "[ ] foo" or "[x] foo" at the start of
+            // a bullet's text becomes a taskState flag and the bracket prefix is
+            // stripped from the displayed text. Headings never carry a checkbox
+            // (the heading path in mdToData isn't list-derived; this branch is
+            // only reached for list items).
+            var taskMatch = /^\[([ xX])\]\s+/.exec(map.text);
+            if (taskMatch) {
+                map.taskState = (taskMatch[1] === ' ') ? 'todo' : 'done';
+                map.text = map.text.slice(taskMatch[0].length);
+            }
             if (flag && mapData.c && mapData.c.length) {
                 mapData.c.forEach((data) => {
                     map.children.push(transformData(data));
@@ -42220,6 +42326,33 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (mindmapView) {
                         mindmapView.exportToPng(4);
                     }
+                }
+            });
+            // Toggle the selected node's task state: none → todo → done → none.
+            // Bullet nodes only — headings have no checkbox concept and would not
+            // roundtrip ("# [ ] foo" isn't standard Obsidian task syntax).
+            // No default hotkey: bind in Obsidian → Settings → Hotkeys.
+            this.addCommand({
+                id: 'Toggle task state',
+                name: `${t('Toggle task state')}`,
+                checkCallback: (checking) => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (!mindmapView)
+                        return false;
+                    if (checking)
+                        return true;
+                    var mindmap = mindmapView.mindmap;
+                    var node = mindmap.selectNode;
+                    if (!node)
+                        return true;
+                    // Headings sit at levels below mindmap.setting.headLevel. Bullet
+                    // nodes are at headLevel or deeper.
+                    if (node.getLevel() < mindmap.setting.headLevel) {
+                        new obsidian.Notice(`${t('Tasks are only available for bullet nodes')}`);
+                        return true;
+                    }
+                    node.toggleTaskState();
+                    return true;
                 }
             });
             this.registerView(mindmapViewType, (leaf) => new MindMapView(leaf, this));

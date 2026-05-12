@@ -28,6 +28,7 @@ interface INode {
     isRoot?:Boolean;
     children?:INode[];
     isEdit?:boolean;
+    taskState?: 'todo' | 'done';
 
 }
 
@@ -49,6 +50,7 @@ export class INodeData implements INode{
     children?:INodeData[]
     expanded?:boolean;
     isEdit?:boolean;
+    taskState?: 'todo' | 'done';
 }
 
 export default class Node {
@@ -120,11 +122,82 @@ export default class Node {
         }
         MarkdownRenderer.renderMarkdown( this.data.text ,this.contentEl,this.mindmap.path||"",null).then(()=>{
             this.data.mdText = this.contentEl.innerHTML;
+            this.renderTaskCheckbox();
             this.refreshBox();
             this.mindmap&&this.mindmap.emit('initNode',{});
             this._delay();
         });
 
+    }
+
+    renderTaskCheckbox(){
+        // Idempotent: remove any prior checkbox + task classes so this
+        // method can be called from parseText, the hotkey, AND a re-render.
+        var prior = this.contentEl.querySelectorAll('.mm-task-checkbox');
+        prior.forEach((el) => el.remove());
+        this.containEl.classList.remove('mm-task');
+        this.containEl.classList.remove('mm-task-done');
+
+        var taskState = (this.data as any).taskState;
+        if (taskState !== 'todo' && taskState !== 'done') return;
+
+        var doc = this.contentEl.ownerDocument || document;
+        var checkbox = doc.createElement('input') as HTMLInputElement;
+        checkbox.type = 'checkbox';
+        checkbox.classList.add('mm-task-checkbox');
+        checkbox.checked = (taskState === 'done');
+        // Stop the activation from reaching the node's select/edit handlers.
+        // Click does a binary todo↔done toggle (does NOT remove the task).
+        // To remove, use the "Toggle task state" hotkey which cycles through none.
+        checkbox.addEventListener('click', (evt: Event) => {
+            evt.stopPropagation();
+            this.toggleTaskChecked();
+        });
+        checkbox.addEventListener('mousedown', (e) => e.stopPropagation());
+        checkbox.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+
+        // Insert the checkbox INSIDE the first block-level element rendered
+        // by MarkdownRenderer (usually <p>) so it flows inline with the text
+        // baseline. Falls back to inserting at the start of contentEl if
+        // the rendered markdown didn't produce a block child (rare).
+        var firstBlock = this.contentEl.firstElementChild as HTMLElement | null;
+        if (firstBlock) {
+            firstBlock.insertBefore(checkbox, firstBlock.firstChild);
+        } else {
+            this.contentEl.insertBefore(checkbox, this.contentEl.firstChild);
+        }
+        this.containEl.classList.add('mm-task');
+        if (taskState === 'done') this.containEl.classList.add('mm-task-done');
+    }
+
+    // Hotkey path: cycle regular → todo → done → regular.
+    toggleTaskState(){
+        var current = (this.data as any).taskState;
+        var next: 'todo' | 'done' | undefined;
+        if (current === 'todo') next = 'done';
+        else if (current === 'done') next = undefined;
+        else next = 'todo';
+        (this.data as any).taskState = next;
+        this.renderTaskCheckbox();
+        this.refreshBox();
+        this.boundingRect = null;
+        if (this.mindmap) {
+            this.mindmap.refresh();
+            this.mindmap.mindMapChange();
+        }
+    }
+
+    // Click-on-checkbox path: binary toggle, never removes the task.
+    toggleTaskChecked(){
+        var current = (this.data as any).taskState;
+        (this.data as any).taskState = (current === 'done') ? 'todo' : 'done';
+        this.renderTaskCheckbox();
+        this.refreshBox();
+        this.boundingRect = null;
+        if (this.mindmap) {
+            this.mindmap.refresh();
+            this.mindmap.mindMapChange();
+        }
     }
 
     _delay(){
@@ -530,11 +603,21 @@ export default class Node {
         if(text.length == 0){
             text = this._oldText
         }
+        // If the user typed an Obsidian-style task prefix into edit mode
+        // ("[ ] foo" / "[x] foo"), promote it to taskState and strip the
+        // bracket from the stored text. Existing taskState persists if no
+        // prefix is present (user just edited the text of a task node).
+        var taskMatch = /^\[([ xX])\]\s+/.exec(text);
+        if (taskMatch) {
+            (this.data as any).taskState = (taskMatch[1] === ' ') ? 'todo' : 'done';
+            text = text.slice(taskMatch[0].length);
+        }
         this.data.text = text;
         this.contentEl.innerText = '';
 
         MarkdownRenderer.renderMarkdown(text,this.contentEl,this.mindmap.path||"",null).then(()=>{
             this.data.mdText = this.contentEl.innerHTML;
+            this.renderTaskCheckbox();
             this.refreshBox();
             this._delay();
         });

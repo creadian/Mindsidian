@@ -1313,6 +1313,31 @@ export default class MindMapPlugin extends Plugin {
       }
     });
 
+    // Toggle the selected node's task state: none → todo → done → none.
+    // Bullet nodes only — headings have no checkbox concept and would not
+    // roundtrip ("# [ ] foo" isn't standard Obsidian task syntax).
+    // No default hotkey: bind in Obsidian → Settings → Hotkeys.
+    this.addCommand({
+      id: 'Toggle task state',
+      name: `${t('Toggle task state')}`,
+      checkCallback: (checking: boolean) => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if (!mindmapView) return false;
+        if (checking) return true;
+        var mindmap = mindmapView.mindmap;
+        var node = mindmap.selectNode;
+        if (!node) return true;
+        // Headings sit at levels below mindmap.setting.headLevel. Bullet
+        // nodes are at headLevel or deeper.
+        if (node.getLevel() < (mindmap.setting as any).headLevel) {
+          new Notice(`${t('Tasks are only available for bullet nodes')}`);
+          return true;
+        }
+        node.toggleTaskState();
+        return true;
+      }
+    });
+
 
     this.registerView(mindmapViewType, (leaf) => new MindMapView(leaf, this));
     this.registerEvents();

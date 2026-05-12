@@ -1159,6 +1159,17 @@ export class MindMapView extends TextFileView implements HoverParent {
         expanded: id ? false:true
       };
 
+      // Obsidian-style task checkbox: "[ ] foo" or "[x] foo" at the start of
+      // a bullet's text becomes a taskState flag and the bracket prefix is
+      // stripped from the displayed text. Headings never carry a checkbox
+      // (the heading path in mdToData isn't list-derived; this branch is
+      // only reached for list items).
+      var taskMatch = /^\[([ xX])\]\s+/.exec(map.text);
+      if (taskMatch) {
+        map.taskState = (taskMatch[1] === ' ') ? 'todo' : 'done';
+        map.text = map.text.slice(taskMatch[0].length);
+      }
+
       if (flag && mapData.c && mapData.c.length) {
         mapData.c.forEach((data: any) => {
           map.children.push(transformData(data));

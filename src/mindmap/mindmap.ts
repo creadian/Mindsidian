@@ -3304,11 +3304,18 @@ export default class MindMap {
                     space += '\t';
                 }
                 var text = n.getData().text.trim();
+                // Task checkbox prefix (bullet branch only; headings drop it).
+                // For multi-line text, only the first emitted line carries
+                // the prefix — matches how Obsidian renders task lists.
+                var taskState = (n.getData() as any).taskState;
+                var taskPrefix = '';
+                if (taskState === 'todo') taskPrefix = '[ ] ';
+                else if (taskState === 'done') taskPrefix = '[x] ';
                 if (text) {
                     var textArr = text.split('\n');
                     var lineLength = textArr.length;
                     if (lineLength == 1) {
-                        md += `${space}- ${text}${ending}\n`;
+                        md += `${space}- ${taskPrefix}${text}${ending}\n`;
                     } else if (lineLength > 1) {
                         //code
                         if (text.startsWith('```')) {
@@ -3320,10 +3327,14 @@ export default class MindMap {
                             md+='\n'
                         } else {
                             // Each line becomes its own bullet at the same level
+                            // (first line only carries the task prefix).
+                            var firstEmitted = true;
                             textArr.forEach((t: string, i: number) => {
                                 var contentText = t.trim();
                                 if (contentText.length > 0) {
-                                    md += `${space}- ${contentText}${i === textArr.length - 1 ? ending : '' }\n`;
+                                    var prefix = firstEmitted ? taskPrefix : '';
+                                    firstEmitted = false;
+                                    md += `${space}- ${prefix}${contentText}${i === textArr.length - 1 ? ending : '' }\n`;
                                 }
                             });
                         }
