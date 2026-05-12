@@ -41,10 +41,16 @@ export class AddNode extends Command {
         this.node.refreshBox();
         this.refresh();
         this.mind.clearSelectNode();
-        setTimeout(()=>{
-            this.node.select();
-            this.node.edit();
-        },0);
+        // v0.5.42: removed the previous `setTimeout(()=>{ ... },0)` wrap
+        // around select+edit. Profiling on a real mindmap (v0.5.41 +
+        // [PROF] instrumentation) showed this setTimeout's "delay until
+        // fire" was 23ms on add-sibling, costing ~20% of the perceived
+        // lag before the new node became editable. Inlining is safe:
+        // the new node's containEl is already attached to the DOM by
+        // addNode() above and laid out by refresh(). focus()+edit()
+        // do not require a paint cycle.
+        this.node.select();
+        this.node.edit();
         return true; //exit with no error
     }
 

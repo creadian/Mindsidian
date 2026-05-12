@@ -721,7 +721,6 @@ export default class Node {
         if(this.containEl.classList.contains('mm-edit-node')){
             this.containEl.classList.remove('mm-edit-node')
         }
-
     }
 
     getLevel() {
