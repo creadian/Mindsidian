@@ -9134,9 +9134,16 @@ class MindMap {
                 if (node && !node.data.isEdit) {
                     var rootPos = this.root.getPosition();
                     var nodePos = node.getPosition();
-                    if (rootPos.x > nodePos.x) { // Node on left side of the mindmap
+                    if (rootPos.x > nodePos.x) { // Node on left side of the mindmap — select parent
                         node.unSelect();
-                        node.parent.select();
+                        var savedLeft = this.containerEL.scrollLeft;
+                        var savedTop = this.containerEL.scrollTop;
+                        node.parent.select({ preventScroll: true });
+                        if (this.containerEL.scrollLeft !== savedLeft)
+                            this.containerEL.scrollLeft = savedLeft;
+                        if (this.containerEL.scrollTop !== savedTop)
+                            this.containerEL.scrollTop = savedTop;
+                        this.scrollNodeIntoViewIfNeeded(node.parent);
                     }
                     else {
                         var node = this.selectNode;
@@ -9154,9 +9161,16 @@ class MindMap {
                 if (node && !node.data.isEdit) {
                     var rootPos = this.root.getPosition();
                     var nodePos = node.getPosition();
-                    if (rootPos.x < nodePos.x) { // Node on right side of the mindmap
+                    if (rootPos.x < nodePos.x) { // Node on right side of the mindmap — select parent
                         node.unSelect();
-                        node.parent.select();
+                        var savedLeft = this.containerEL.scrollLeft;
+                        var savedTop = this.containerEL.scrollTop;
+                        node.parent.select({ preventScroll: true });
+                        if (this.containerEL.scrollLeft !== savedLeft)
+                            this.containerEL.scrollLeft = savedLeft;
+                        if (this.containerEL.scrollTop !== savedTop)
+                            this.containerEL.scrollTop = savedTop;
+                        this.scrollNodeIntoViewIfNeeded(node.parent);
                     }
                     else {
                         var node = this.selectNode;
@@ -9736,11 +9750,21 @@ class MindMap {
         });
         if (waitNode) {
             mind.clearSelectNode();
-            // preventScroll: true → suppress the browser's focus-driven auto
-            // scroll-into-view. We then run our own visibility check so the
-            // map only moves when the newly-selected node is actually off
-            // screen, not on every arrow press.
+            // Belt + braces against focus-driven auto-scroll:
+            //   (1) preventScroll: true on focus() — works in most browsers.
+            //   (2) Save scrollLeft/scrollTop before select(), restore right
+            //       after. Catches any path where preventScroll is ignored
+            //       (some Electron versions, or scroll triggered by Obsidian
+            //       workspace listeners we don't control).
+            //   (3) THEN our own visibility check scrolls only if the new
+            //       selection would land outside the viewport's margin.
+            var savedLeft = mind.containerEL.scrollLeft;
+            var savedTop = mind.containerEL.scrollTop;
             waitNode.select({ preventScroll: true });
+            if (mind.containerEL.scrollLeft !== savedLeft)
+                mind.containerEL.scrollLeft = savedLeft;
+            if (mind.containerEL.scrollTop !== savedTop)
+                mind.containerEL.scrollTop = savedTop;
             mind.scrollNodeIntoViewIfNeeded(waitNode);
         }
     }
