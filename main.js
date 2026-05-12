@@ -719,7 +719,27 @@ class Node$1 {
         this.data.isEdit = true;
         keepLastIndex(this.contentEl);
         if (this.contentEl.innerText == t('Sub title')) {
-            this.selectText();
+            // Narrow micro-defer (v0.5.43): the focus() call above hasn't
+            // fully settled in the same synchronous block — calling
+            // selectText() inline here lets the browser's post-focus
+            // selection state override our range, leaving the placeholder
+            // un-highlighted. setTimeout(0) gives focus one tick to land,
+            // then selection sticks.
+            //
+            // Re-check innerText inside the timer: if the user has already
+            // started typing in the meantime, the text won't be "Sub title"
+            // anymore — DO NOT overwrite their input by re-selecting.
+            //
+            // Why this lives here and not in the caller (AddNode.execute):
+            // edit() is called from many code paths (click, double-tap,
+            // Shift+F2, etc.). Keeping the defer co-located with the
+            // placeholder logic means every entry path gets the same
+            // behavior without each caller having to know.
+            setTimeout(() => {
+                if (this.contentEl.innerText == t('Sub title')) {
+                    this.selectText();
+                }
+            }, 0);
         }
         if (!this.containEl.classList.contains('mm-edit-node')) {
             this.containEl.classList.add('mm-edit-node');
