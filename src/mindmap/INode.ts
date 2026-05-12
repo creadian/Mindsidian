@@ -332,19 +332,12 @@ export default class Node {
          },100)
     }
 
-    select(options?: { preventScroll?: boolean }){
+    select(){
         this.isSelect = true;
         this.containEl.setAttribute('draggable','true');
-        // Calling .focus() on a DOM element triggers the browser's built-in
-        // "scroll into view" behavior for the focused element. That's the
-        // mindmap "jumps on every arrow key" effect. Callers that want to
-        // suppress this (e.g. keyboard navigation, which then runs its own
-        // "scroll if needed" check) pass { preventScroll: true }.
-        if (options && options.preventScroll) {
-            this.containEl.focus({ preventScroll: true });
-        } else {
-            this.containEl.focus();
-        }
+        //if(this.mindmap.view.plugin.settings.focusOnMove) {
+            this.containEl.focus(); // set the dom to be focused
+        //}
         Object.assign(window,{
             myNode:this
         });

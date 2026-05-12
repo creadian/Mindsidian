@@ -974,14 +974,9 @@ export default class MindMap {
                     var rootPos = this.root.getPosition();
                     var nodePos = node.getPosition();
                     if(rootPos.x > nodePos.x)
-                    {// Node on left side of the mindmap — select parent
+                    {// Node on left side of the mindmap
                         node.unSelect();
-                        var savedLeft = this.containerEL.scrollLeft;
-                        var savedTop = this.containerEL.scrollTop;
-                        node.parent.select({ preventScroll: true });
-                        if (this.containerEL.scrollLeft !== savedLeft) this.containerEL.scrollLeft = savedLeft;
-                        if (this.containerEL.scrollTop !== savedTop)  this.containerEL.scrollTop = savedTop;
-                        this.scrollNodeIntoViewIfNeeded(node.parent);
+                        node.parent.select();
                     }
                     else
                     {
@@ -1003,14 +998,9 @@ export default class MindMap {
                     var rootPos = this.root.getPosition();
                     var nodePos = node.getPosition();
                     if(rootPos.x < nodePos.x)
-                    {// Node on right side of the mindmap — select parent
+                    {// Node on right side of the mindmap
                         node.unSelect();
-                        var savedLeft = this.containerEL.scrollLeft;
-                        var savedTop = this.containerEL.scrollTop;
-                        node.parent.select({ preventScroll: true });
-                        if (this.containerEL.scrollLeft !== savedLeft) this.containerEL.scrollLeft = savedLeft;
-                        if (this.containerEL.scrollTop !== savedTop)  this.containerEL.scrollTop = savedTop;
-                        this.scrollNodeIntoViewIfNeeded(node.parent);
+                        node.parent.select();
                     }
                     else
                     {
@@ -1870,45 +1860,8 @@ export default class MindMap {
 
         if (waitNode) {
             mind.clearSelectNode();
-            // Belt + braces against focus-driven auto-scroll:
-            //   (1) preventScroll: true on focus() — works in most browsers.
-            //   (2) Save scrollLeft/scrollTop before select(), restore right
-            //       after. Catches any path where preventScroll is ignored
-            //       (some Electron versions, or scroll triggered by Obsidian
-            //       workspace listeners we don't control).
-            //   (3) THEN our own visibility check scrolls only if the new
-            //       selection would land outside the viewport's margin.
-            var savedLeft = mind.containerEL.scrollLeft;
-            var savedTop = mind.containerEL.scrollTop;
-            waitNode.select({ preventScroll: true });
-            if (mind.containerEL.scrollLeft !== savedLeft) mind.containerEL.scrollLeft = savedLeft;
-            if (mind.containerEL.scrollTop !== savedTop)  mind.containerEL.scrollTop = savedTop;
-            mind.scrollNodeIntoViewIfNeeded(waitNode);
+            waitNode.select();
         }
-    }
-
-    // Scroll the viewport just enough to bring `node` fully into view, with
-    // a small margin from the edge. If the node is already comfortably
-    // visible, do nothing — this is what makes arrow-key navigation feel
-    // stationary instead of jumpy.
-    scrollNodeIntoViewIfNeeded(node: INode) {
-        if (!node || !node.containEl) return;
-        var nodeRect = node.containEl.getBoundingClientRect();
-        var containerRect = this.containerEL.getBoundingClientRect();
-        var margin = 40; // breathing room so the node isn't flush to the edge
-        var dx = 0, dy = 0;
-        if (nodeRect.left < containerRect.left + margin) {
-            dx = nodeRect.left - (containerRect.left + margin);
-        } else if (nodeRect.right > containerRect.right - margin) {
-            dx = nodeRect.right - (containerRect.right - margin);
-        }
-        if (nodeRect.top < containerRect.top + margin) {
-            dy = nodeRect.top - (containerRect.top + margin);
-        } else if (nodeRect.bottom > containerRect.bottom - margin) {
-            dy = nodeRect.bottom - (containerRect.bottom - margin);
-        }
-        if (dx !== 0) this.containerEL.scrollLeft += dx;
-        if (dy !== 0) this.containerEL.scrollTop += dy;
     }
 
     appClickFn(evt: MouseEvent) {
