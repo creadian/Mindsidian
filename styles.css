@@ -341,7 +341,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 16px;
+  /* No flex gap — per-button margins give the big group (sibling, child)
+     a roomy gap and the small group (undo, redo, trash, recenter) a
+     tighter gap. */
   padding: 0 16px;
   z-index: 100;
   pointer-events: none;
@@ -369,32 +371,38 @@
   transform: scale(0.94);
 }
 
+/* Big primary buttons: sibling + child. Full user-configured size. */
 .mm-mobile-action-sibling,
-.mm-mobile-action-child,
-.mm-mobile-action-undo,
-.mm-mobile-action-redo,
-.mm-mobile-action-trash {
+.mm-mobile-action-child {
   width: var(--mm-action-btn-size, 56px);
   height: var(--mm-action-btn-size, 56px);
   font-size: calc(var(--mm-action-btn-size, 56px) * 0.5);
 }
 
-.mm-mobile-action-trash {
-  color: var(--text-muted, #888);
-}
-
+/* Small secondary buttons: undo, redo, trash, recenter. ~2/3 of full size
+   and muted color so they don't compete with the primary actions. */
 .mm-mobile-action-undo,
-.mm-mobile-action-redo {
+.mm-mobile-action-redo,
+.mm-mobile-action-trash,
+.mm-mobile-action-recenter {
+  width: calc(var(--mm-action-btn-size, 56px) * 0.65);
+  height: calc(var(--mm-action-btn-size, 56px) * 0.65);
+  font-size: calc(var(--mm-action-btn-size, 56px) * 0.65 * 0.5);
   color: var(--text-muted, #888);
 }
 
-/* Recenter stays small per design — fixed 36px regardless of the size
-   setting. Pushed to the right edge of the bar. */
-.mm-mobile-action-recenter {
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
+/* Spacing: sibling — 16px — child — flex spacer — [undo redo trash recenter]
+   with 6px between the small ones. Recenter sits at the right edge. */
+.mm-mobile-action-child {
+  margin-left: 16px;
+}
+.mm-mobile-action-undo {
   margin-left: auto;
+}
+.mm-mobile-action-redo,
+.mm-mobile-action-trash,
+.mm-mobile-action-recenter {
+  margin-left: 6px;
 }
 
 /* The floating per-node menu (mm-node-menu with + and trash icons next to
