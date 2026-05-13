@@ -704,7 +704,19 @@ export default class MindMap {
             // in v0.5.45 — confirmed every dropped second-press had
             // activeElement inside containerEL but isFocused=false.
             var doc = this.containerEL.ownerDocument || document;
-            if (!this.containerEL.contains(doc.activeElement)) return;
+            if (!this.containerEL.contains(doc.activeElement)) {
+                // Second fallback: the marquee (2s-hold drag) finalizes a
+                // selection without ever calling `node.select()`, so focus
+                // stays on <body> — Delete after a rectangle-select would
+                // otherwise silently no-op. Accept only when (a) no other
+                // UI element claims focus, i.e. activeElement is <body>,
+                // and (b) this mindmap has a live multi-selection. The
+                // <body> check is critical: it ensures keystrokes in an
+                // adjacent markdown editor / sibling view don't get
+                // routed to this mindmap's multi-selection handler.
+                if (doc.activeElement !== doc.body) return;
+                if (!this.selectNodes || this.selectNodes.length === 0) return;
+            }
         }
         var keyCode = e.keyCode || e.which || e.charCode;
         var ctrlKey = e.ctrlKey || e.metaKey;
@@ -742,6 +754,22 @@ export default class MindMap {
         if (!ctrlKey && !shiftKey && !altKey) { // No special key
             // Delete / Backspace — delete node when not editing
             if (e.key == 'Delete' || e.key == 'Backspace') {
+                // Multi-delete: when a multi-selection exists, delete all
+                // pruned-to-top-ancestors entries in one keystroke.
+                if (this.selectNodes.length > 0) {
+                    var deletable = this._pruneToTopAncestors(this.selectNodes.slice())
+                        .filter(n => !n.data.isRoot && !n.data.isEdit);
+                    if (deletable.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        deletable.forEach(n => {
+                            n.mindmap.execute("deleteNodeAndChild", { node: n });
+                        });
+                        this.clearMultiSelect();
+                        this._menuDom.style.display='none';
+                        return;
+                    }
+                }
                 var node = this.selectNode;
                 if (node && !node.data.isRoot && !node.data.isEdit) {
                     e.preventDefault();
@@ -1894,6 +1922,39 @@ export default class MindMap {
             return;
         }
 
+        // Shift-click → toggle the clicked node in the multi-selection.
+        // Seeding: if multi-select is empty and there's a current single-
+        // select that isn't the clicked node, promote that single-select
+        // into the multi-selection first — so shift-clicking B after A
+        // was singly-selected gives {A, B} (Obsidian Canvas convention).
+        if (evt.shiftKey && targetEl) {
+            var sNodeEl = targetEl.closest('.mm-node') as HTMLElement | null;
+            if (sNodeEl && !targetEl.closest('.mm-node-menu') && !targetEl.hasClass('mm-node-bar')) {
+                var sNodeId = sNodeEl.getAttribute('data-id');
+                var sNode = this.getNodeById(sNodeId);
+                if (sNode && !sNode.data.isRoot) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    if (this.selectNodes.length === 0 && this.selectNode && this.selectNode !== sNode && !this.selectNode.data.isRoot) {
+                        this.addToMultiSelect(this.selectNode);
+                    }
+                    if (this.isInMultiSelect(sNode)) {
+                        sNode.containEl.classList.remove('mm-node-multi-select');
+                        if (!sNode.isSelect) {
+                            sNode.containEl.setAttribute('draggable', 'false');
+                        }
+                        this.selectNodes = this.selectNodes.filter(n => n !== sNode);
+                    } else {
+                        this.addToMultiSelect(sNode);
+                    }
+                    this._menuDom.style.display = 'none';
+                    this._lastClickTime = 0;
+                    this._lastClickNodeId = '';
+                    return;
+                }
+            }
+        }
+
         // Manual double-click detector (desktop). Native `dblclick` doesn't
         // fire reliably in Obsidian popout windows — likely because the 1st
         // click's `node.select()` triggers `containEl.focus()` and the
@@ -1990,6 +2051,12 @@ export default class MindMap {
             if (targetEl.closest('.mm-node')) {
                 var id = targetEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
+                // Plain click while a multi-selection exists collapses
+                // back to a single selection of just the clicked node
+                // (Obsidian Canvas convention).
+                if (this.selectNodes.length > 0) {
+                    this.clearSelectNode();
+                }
                 if (!node.isSelect) {
                     this.clearSelectNode();
                     this.selectNode = node;
@@ -2298,7 +2365,7 @@ export default class MindMap {
                 // Compute canvas start point AT TIMER FIRE TIME so the inverse-
                 // transform reads the current CSS transform-origin / scroll.
                 // Earlier we tried computing at mousedown, but if anything
-                // updated CSS transform-origin in the 1.5s wait, the marquee
+                // updated CSS transform-origin during the wait, the marquee
                 // would land in the wrong place.
                 var freshPt = self._viewportToCanvas(self._marqueeStartClientX, self._marqueeStartClientY);
                 self._marqueeStartCanvasX = freshPt.x;
@@ -2306,7 +2373,7 @@ export default class MindMap {
                 // Stop the pan that started on mousedown so the marquee owns the gesture.
                 self.drag = false;
                 self._enterMarqueeMode(self._marqueeStartCanvasX, self._marqueeStartCanvasY);
-            }, 1500);
+            }, 1000);
         }
     }
 
@@ -3420,6 +3487,25 @@ export default class MindMap {
         this.highlightPalette.openForNode(node);
     }
 
+    // Multi-selection variant: anchor the palette at the top-leftmost
+    // selected node and apply the chosen color to every node in the
+    // multi-selection. Non-highlightable nodes (root) are filtered.
+    openHighlightPaletteMulti(nodes: INode[]) {
+        if (!nodes || nodes.length === 0) return;
+        var targets = nodes.filter(n => !n.data.isRoot);
+        if (targets.length === 0) return;
+        var anchor = targets.slice().sort((a, b) => {
+            var ba = a.getBox(); var bb = b.getBox();
+            if (!ba || !bb) return 0;
+            if (ba.y !== bb.y) return ba.y - bb.y;
+            return ba.x - bb.x;
+        })[0];
+        if (!this.highlightPalette) {
+            this.highlightPalette = new HighlightPalette(this);
+        }
+        this.highlightPalette.openForNodes(anchor, targets);
+    }
+
     scale(num: number) {
         if (num < 20) {
             num = 20;
@@ -3533,11 +3619,42 @@ export default class MindMap {
         }
   }
 
+  // Pack multiple subtrees into one clipboard payload. Used by Copy/Cut
+  // when a multi-selection is active. Each entry is the output of
+  // copyNode() for a top-ancestor (pruned), so descendants of a selected
+  // ancestor aren't duplicated. pasteNode unpacks the 'copyNodes' format.
+  copyNodes(nodes: INode[]): string {
+      if (!nodes || nodes.length === 0) return '';
+      var top = this._pruneToTopAncestors(nodes.slice())
+          .filter(n => !n.data.isRoot);
+      if (top.length === 0) return '';
+      var subtrees = top.map(n => JSON.parse(this.copyNode(n)));
+      return JSON.stringify({ type: 'copyNodes', subtrees });
+  }
+
   pasteNode(text:string){
         var node = this.selectNode;
-        if(text){
+        if(text && node){
             try{
                   var json =JSON.parse(text);
+                  // Multi-paste: each subtree is pasted under the target,
+                  // becoming a set of new children/siblings.
+                  if(json.type === 'copyNodes' && Array.isArray(json.subtrees)){
+                      if(!node.isExpand){
+                          node.expand();
+                          node.clearCacheData();
+                      }
+                      json.subtrees.forEach((sub:any) => {
+                          if (sub && Array.isArray(sub.text)) {
+                              this.execute('pasteNode', {
+                                  node: node,
+                                  data: sub.text
+                              });
+                          }
+                      });
+                      navigator.clipboard.writeText('');
+                      return;
+                  }
                   if(json.type&&json.type=='copyNode'){
                     var data = json.text;
                     if(!node.isExpand){

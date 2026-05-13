@@ -25,6 +25,10 @@ export class HighlightPalette {
     private outsideClickHandler: (e: MouseEvent) => void;
     private isOpen: boolean = false;
     private currentNode: Node | null = null;
+    // Optional secondary targets (multi-select). When non-empty, pick()
+    // applies the color/clear to every node in this list as well as
+    // `currentNode`. Anchor / position is still based on `currentNode`.
+    private currentNodes: Node[] = [];
 
     constructor(mindmap: MindMap) {
         this.mindmap = mindmap;
@@ -71,6 +75,7 @@ export class HighlightPalette {
 
     openForNode(node: Node) {
         this.currentNode = node;
+        this.currentNodes = [];
         var nodeRect = (node as any).containEl.getBoundingClientRect();
         var crect = this.mindmap.containerEL.getBoundingClientRect();
         // Below the node, aligned to its left edge. Clamp into viewport
@@ -96,16 +101,45 @@ export class HighlightPalette {
         }, 0);
     }
 
+    // Open the palette anchored at `anchor`, and apply the chosen color
+    // (or clear) to every node in `targets`. Used for multi-selection
+    // highlighting — anchor is typically the first selected node.
+    openForNodes(anchor: Node, targets: Node[]) {
+        this.currentNode = anchor;
+        this.currentNodes = targets ? targets.slice() : [];
+        var nodeRect = (anchor as any).containEl.getBoundingClientRect();
+        var crect = this.mindmap.containerEL.getBoundingClientRect();
+        var top = nodeRect.bottom - crect.top + 8;
+        var left = nodeRect.left - crect.left;
+        this.el.style.display = 'flex';
+        var paletteWidth = this.el.offsetWidth;
+        var maxLeft = this.mindmap.containerEL.clientWidth - paletteWidth - 8;
+        if (left > maxLeft) left = maxLeft;
+        if (left < 8) left = 8;
+        this.el.style.left = `${left}px`;
+        this.el.style.top = `${top}px`;
+        this.isOpen = true;
+        var doc = this.mindmap.containerEL.ownerDocument || document;
+        setTimeout(() => {
+            doc.addEventListener('click', this.outsideClickHandler, true);
+        }, 0);
+    }
+
     close() {
         this.el.style.display = 'none';
         this.isOpen = false;
         this.currentNode = null;
+        this.currentNodes = [];
         var doc = this.mindmap.containerEL.ownerDocument || document;
         doc.removeEventListener('click', this.outsideClickHandler, true);
     }
 
     private pick(color: string | null) {
-        if (this.currentNode) {
+        if (this.currentNodes && this.currentNodes.length > 0) {
+            this.currentNodes.forEach((n) => {
+                (n as any).applyHighlight(color);
+            });
+        } else if (this.currentNode) {
             (this.currentNode as any).applyHighlight(color);
         }
         this.close();

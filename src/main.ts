@@ -112,6 +112,13 @@ export default class MindMapPlugin extends Plugin {
         if(checking) return true;
         var mindmap = mindmapView.mindmap;
         navigator.clipboard.writeText('');
+        // Multi-copy: pack all selected subtrees (pruned to top ancestors)
+        // into a single 'copyNodes' clipboard envelope.
+        if (mindmap.selectNodes.length > 0) {
+          var packed = mindmap.copyNodes(mindmap.selectNodes);
+          if (packed) navigator.clipboard.writeText(packed);
+          return true;
+        }
         var node = mindmap.selectNode;
         if(node){
           var text = mindmap.copyNode(node);
@@ -137,6 +144,19 @@ export default class MindMapPlugin extends Plugin {
         if(checking) return true;
         var mindmap = mindmapView.mindmap;
         navigator.clipboard.writeText('');
+        // Multi-cut: pack then delete each top ancestor.
+        if (mindmap.selectNodes.length > 0) {
+          var packed = mindmap.copyNodes(mindmap.selectNodes);
+          if (packed) navigator.clipboard.writeText(packed);
+          var deletable = mindmap._pruneToTopAncestors(mindmap.selectNodes.slice())
+            .filter(n => !n.data.isRoot && !n.data.isEdit);
+          deletable.forEach(n => {
+            n.mindmap.execute("deleteNodeAndChild", { node: n });
+          });
+          mindmap.clearMultiSelect();
+          mindmap._menuDom.style.display = 'none';
+          return true;
+        }
         var node = mindmap.selectNode;
         if(node){
           var text = mindmap.copyNode(node);
@@ -355,6 +375,19 @@ export default class MindMapPlugin extends Plugin {
         if(!mindmapView) return false;
         if(checking) return true;
         var mindmap = mindmapView.mindmap;
+        // Multi-delete: prune to top ancestors and delete each.
+        if (mindmap.selectNodes.length > 0) {
+          var deletable = mindmap._pruneToTopAncestors(mindmap.selectNodes.slice())
+            .filter(n => !n.data.isRoot && !n.data.isEdit);
+          if (deletable.length > 0) {
+            deletable.forEach(n => {
+              n.mindmap.execute("deleteNodeAndChild", { node: n });
+            });
+            mindmap.clearMultiSelect();
+            mindmap._menuDom.style.display = 'none';
+            return true;
+          }
+        }
         var node = mindmap.selectNode;
         if (node && !node.data.isRoot && !node.data.isEdit) {
           node.mindmap.execute("deleteNodeAndChild", { node });
@@ -1325,12 +1358,19 @@ export default class MindMapPlugin extends Plugin {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
         if (!mindmapView) return false;
         if (checking) return true;
-        var node = mindmapView.mindmap.selectNode;
+        var mindmap = mindmapView.mindmap;
+        // Multi-highlight: palette anchors at top-leftmost selected node
+        // and applies the picked color to all selected nodes.
+        if (mindmap.selectNodes.length > 0) {
+          mindmap.openHighlightPaletteMulti(mindmap.selectNodes);
+          return true;
+        }
+        var node = mindmap.selectNode;
         if (!node) {
           new Notice(`${t('Select a node first')}`);
           return true;
         }
-        mindmapView.mindmap.openHighlightPalette(node);
+        mindmap.openHighlightPalette(node);
         return true;
       }
     });

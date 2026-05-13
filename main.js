@@ -1829,6 +1829,10 @@ class HighlightPalette {
     constructor(mindmap) {
         this.isOpen = false;
         this.currentNode = null;
+        // Optional secondary targets (multi-select). When non-empty, pick()
+        // applies the color/clear to every node in this list as well as
+        // `currentNode`. Anchor / position is still based on `currentNode`.
+        this.currentNodes = [];
         this.mindmap = mindmap;
         var doc = mindmap.containerEL.ownerDocument || document;
         this.el = doc.createElement('div');
@@ -1869,6 +1873,7 @@ class HighlightPalette {
     }
     openForNode(node) {
         this.currentNode = node;
+        this.currentNodes = [];
         var nodeRect = node.containEl.getBoundingClientRect();
         var crect = this.mindmap.containerEL.getBoundingClientRect();
         // Below the node, aligned to its left edge. Clamp into viewport
@@ -1894,15 +1899,46 @@ class HighlightPalette {
             doc.addEventListener('click', this.outsideClickHandler, true);
         }, 0);
     }
+    // Open the palette anchored at `anchor`, and apply the chosen color
+    // (or clear) to every node in `targets`. Used for multi-selection
+    // highlighting — anchor is typically the first selected node.
+    openForNodes(anchor, targets) {
+        this.currentNode = anchor;
+        this.currentNodes = targets ? targets.slice() : [];
+        var nodeRect = anchor.containEl.getBoundingClientRect();
+        var crect = this.mindmap.containerEL.getBoundingClientRect();
+        var top = nodeRect.bottom - crect.top + 8;
+        var left = nodeRect.left - crect.left;
+        this.el.style.display = 'flex';
+        var paletteWidth = this.el.offsetWidth;
+        var maxLeft = this.mindmap.containerEL.clientWidth - paletteWidth - 8;
+        if (left > maxLeft)
+            left = maxLeft;
+        if (left < 8)
+            left = 8;
+        this.el.style.left = `${left}px`;
+        this.el.style.top = `${top}px`;
+        this.isOpen = true;
+        var doc = this.mindmap.containerEL.ownerDocument || document;
+        setTimeout(() => {
+            doc.addEventListener('click', this.outsideClickHandler, true);
+        }, 0);
+    }
     close() {
         this.el.style.display = 'none';
         this.isOpen = false;
         this.currentNode = null;
+        this.currentNodes = [];
         var doc = this.mindmap.containerEL.ownerDocument || document;
         doc.removeEventListener('click', this.outsideClickHandler, true);
     }
     pick(color) {
-        if (this.currentNode) {
+        if (this.currentNodes && this.currentNodes.length > 0) {
+            this.currentNodes.forEach((n) => {
+                n.applyHighlight(color);
+            });
+        }
+        else if (this.currentNode) {
             this.currentNode.applyHighlight(color);
         }
         this.close();
@@ -8919,8 +8955,21 @@ class MindMap {
             // in v0.5.45 — confirmed every dropped second-press had
             // activeElement inside containerEL but isFocused=false.
             var doc = this.containerEL.ownerDocument || document;
-            if (!this.containerEL.contains(doc.activeElement))
-                return;
+            if (!this.containerEL.contains(doc.activeElement)) {
+                // Second fallback: the marquee (2s-hold drag) finalizes a
+                // selection without ever calling `node.select()`, so focus
+                // stays on <body> — Delete after a rectangle-select would
+                // otherwise silently no-op. Accept only when (a) no other
+                // UI element claims focus, i.e. activeElement is <body>,
+                // and (b) this mindmap has a live multi-selection. The
+                // <body> check is critical: it ensures keystrokes in an
+                // adjacent markdown editor / sibling view don't get
+                // routed to this mindmap's multi-selection handler.
+                if (doc.activeElement !== doc.body)
+                    return;
+                if (!this.selectNodes || this.selectNodes.length === 0)
+                    return;
+            }
         }
         e.keyCode || e.which || e.charCode;
         var ctrlKey = e.ctrlKey || e.metaKey;
@@ -8955,6 +9004,22 @@ class MindMap {
         if (!ctrlKey && !shiftKey && !altKey) { // No special key
             // Delete / Backspace — delete node when not editing
             if (e.key == 'Delete' || e.key == 'Backspace') {
+                // Multi-delete: when a multi-selection exists, delete all
+                // pruned-to-top-ancestors entries in one keystroke.
+                if (this.selectNodes.length > 0) {
+                    var deletable = this._pruneToTopAncestors(this.selectNodes.slice())
+                        .filter(n => !n.data.isRoot && !n.data.isEdit);
+                    if (deletable.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        deletable.forEach(n => {
+                            n.mindmap.execute("deleteNodeAndChild", { node: n });
+                        });
+                        this.clearMultiSelect();
+                        this._menuDom.style.display = 'none';
+                        return;
+                    }
+                }
                 var node = this.selectNode;
                 if (node && !node.data.isRoot && !node.data.isEdit) {
                     e.preventDefault();
@@ -9779,6 +9844,39 @@ class MindMap {
             evt.stopPropagation();
             return;
         }
+        // Shift-click → toggle the clicked node in the multi-selection.
+        // Seeding: if multi-select is empty and there's a current single-
+        // select that isn't the clicked node, promote that single-select
+        // into the multi-selection first — so shift-clicking B after A
+        // was singly-selected gives {A, B} (Obsidian Canvas convention).
+        if (evt.shiftKey && targetEl) {
+            var sNodeEl = targetEl.closest('.mm-node');
+            if (sNodeEl && !targetEl.closest('.mm-node-menu') && !targetEl.hasClass('mm-node-bar')) {
+                var sNodeId = sNodeEl.getAttribute('data-id');
+                var sNode = this.getNodeById(sNodeId);
+                if (sNode && !sNode.data.isRoot) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    if (this.selectNodes.length === 0 && this.selectNode && this.selectNode !== sNode && !this.selectNode.data.isRoot) {
+                        this.addToMultiSelect(this.selectNode);
+                    }
+                    if (this.isInMultiSelect(sNode)) {
+                        sNode.containEl.classList.remove('mm-node-multi-select');
+                        if (!sNode.isSelect) {
+                            sNode.containEl.setAttribute('draggable', 'false');
+                        }
+                        this.selectNodes = this.selectNodes.filter(n => n !== sNode);
+                    }
+                    else {
+                        this.addToMultiSelect(sNode);
+                    }
+                    this._menuDom.style.display = 'none';
+                    this._lastClickTime = 0;
+                    this._lastClickNodeId = '';
+                    return;
+                }
+            }
+        }
         // Manual double-click detector (desktop). Native `dblclick` doesn't
         // fire reliably in Obsidian popout windows — likely because the 1st
         // click's `node.select()` triggers `containEl.focus()` and the
@@ -9866,6 +9964,12 @@ class MindMap {
             if (targetEl.closest('.mm-node')) {
                 var id = targetEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
+                // Plain click while a multi-selection exists collapses
+                // back to a single selection of just the clicked node
+                // (Obsidian Canvas convention).
+                if (this.selectNodes.length > 0) {
+                    this.clearSelectNode();
+                }
                 if (!node.isSelect) {
                     this.clearSelectNode();
                     this.selectNode = node;
@@ -10157,7 +10261,7 @@ class MindMap {
                 // Compute canvas start point AT TIMER FIRE TIME so the inverse-
                 // transform reads the current CSS transform-origin / scroll.
                 // Earlier we tried computing at mousedown, but if anything
-                // updated CSS transform-origin in the 1.5s wait, the marquee
+                // updated CSS transform-origin during the wait, the marquee
                 // would land in the wrong place.
                 var freshPt = self._viewportToCanvas(self._marqueeStartClientX, self._marqueeStartClientY);
                 self._marqueeStartCanvasX = freshPt.x;
@@ -10165,7 +10269,7 @@ class MindMap {
                 // Stop the pan that started on mousedown so the marquee owns the gesture.
                 self.drag = false;
                 self._enterMarqueeMode(self._marqueeStartCanvasX, self._marqueeStartCanvasY);
-            }, 1500);
+            }, 1000);
         }
     }
     appMouseUp(evt) {
@@ -11156,6 +11260,29 @@ class MindMap {
         }
         this.highlightPalette.openForNode(node);
     }
+    // Multi-selection variant: anchor the palette at the top-leftmost
+    // selected node and apply the chosen color to every node in the
+    // multi-selection. Non-highlightable nodes (root) are filtered.
+    openHighlightPaletteMulti(nodes) {
+        if (!nodes || nodes.length === 0)
+            return;
+        var targets = nodes.filter(n => !n.data.isRoot);
+        if (targets.length === 0)
+            return;
+        var anchor = targets.slice().sort((a, b) => {
+            var ba = a.getBox();
+            var bb = b.getBox();
+            if (!ba || !bb)
+                return 0;
+            if (ba.y !== bb.y)
+                return ba.y - bb.y;
+            return ba.x - bb.x;
+        })[0];
+        if (!this.highlightPalette) {
+            this.highlightPalette = new HighlightPalette(this);
+        }
+        this.highlightPalette.openForNodes(anchor, targets);
+    }
     scale(num) {
         if (num < 20) {
             num = 20;
@@ -11264,11 +11391,43 @@ class MindMap {
             return '';
         }
     }
+    // Pack multiple subtrees into one clipboard payload. Used by Copy/Cut
+    // when a multi-selection is active. Each entry is the output of
+    // copyNode() for a top-ancestor (pruned), so descendants of a selected
+    // ancestor aren't duplicated. pasteNode unpacks the 'copyNodes' format.
+    copyNodes(nodes) {
+        if (!nodes || nodes.length === 0)
+            return '';
+        var top = this._pruneToTopAncestors(nodes.slice())
+            .filter(n => !n.data.isRoot);
+        if (top.length === 0)
+            return '';
+        var subtrees = top.map(n => JSON.parse(this.copyNode(n)));
+        return JSON.stringify({ type: 'copyNodes', subtrees });
+    }
     pasteNode(text) {
         var node = this.selectNode;
-        if (text) {
+        if (text && node) {
             try {
                 var json = JSON.parse(text);
+                // Multi-paste: each subtree is pasted under the target,
+                // becoming a set of new children/siblings.
+                if (json.type === 'copyNodes' && Array.isArray(json.subtrees)) {
+                    if (!node.isExpand) {
+                        node.expand();
+                        node.clearCacheData();
+                    }
+                    json.subtrees.forEach((sub) => {
+                        if (sub && Array.isArray(sub.text)) {
+                            this.execute('pasteNode', {
+                                node: node,
+                                data: sub.text
+                            });
+                        }
+                    });
+                    navigator.clipboard.writeText('');
+                    return;
+                }
                 if (json.type && json.type == 'copyNode') {
                     var data = json.text;
                     if (!node.isExpand) {
@@ -41454,6 +41613,14 @@ class MindMapPlugin extends obsidian.Plugin {
                         return true;
                     var mindmap = mindmapView.mindmap;
                     navigator.clipboard.writeText('');
+                    // Multi-copy: pack all selected subtrees (pruned to top ancestors)
+                    // into a single 'copyNodes' clipboard envelope.
+                    if (mindmap.selectNodes.length > 0) {
+                        var packed = mindmap.copyNodes(mindmap.selectNodes);
+                        if (packed)
+                            navigator.clipboard.writeText(packed);
+                        return true;
+                    }
                     var node = mindmap.selectNode;
                     if (node) {
                         var text = mindmap.copyNode(node);
@@ -41480,6 +41647,20 @@ class MindMapPlugin extends obsidian.Plugin {
                         return true;
                     var mindmap = mindmapView.mindmap;
                     navigator.clipboard.writeText('');
+                    // Multi-cut: pack then delete each top ancestor.
+                    if (mindmap.selectNodes.length > 0) {
+                        var packed = mindmap.copyNodes(mindmap.selectNodes);
+                        if (packed)
+                            navigator.clipboard.writeText(packed);
+                        var deletable = mindmap._pruneToTopAncestors(mindmap.selectNodes.slice())
+                            .filter(n => !n.data.isRoot && !n.data.isEdit);
+                        deletable.forEach(n => {
+                            n.mindmap.execute("deleteNodeAndChild", { node: n });
+                        });
+                        mindmap.clearMultiSelect();
+                        mindmap._menuDom.style.display = 'none';
+                        return true;
+                    }
                     var node = mindmap.selectNode;
                     if (node) {
                         var text = mindmap.copyNode(node);
@@ -41705,6 +41886,19 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (checking)
                         return true;
                     var mindmap = mindmapView.mindmap;
+                    // Multi-delete: prune to top ancestors and delete each.
+                    if (mindmap.selectNodes.length > 0) {
+                        var deletable = mindmap._pruneToTopAncestors(mindmap.selectNodes.slice())
+                            .filter(n => !n.data.isRoot && !n.data.isEdit);
+                        if (deletable.length > 0) {
+                            deletable.forEach(n => {
+                                n.mindmap.execute("deleteNodeAndChild", { node: n });
+                            });
+                            mindmap.clearMultiSelect();
+                            mindmap._menuDom.style.display = 'none';
+                            return true;
+                        }
+                    }
                     var node = mindmap.selectNode;
                     if (node && !node.data.isRoot && !node.data.isEdit) {
                         node.mindmap.execute("deleteNodeAndChild", { node });
@@ -42657,12 +42851,19 @@ class MindMapPlugin extends obsidian.Plugin {
                         return false;
                     if (checking)
                         return true;
-                    var node = mindmapView.mindmap.selectNode;
+                    var mindmap = mindmapView.mindmap;
+                    // Multi-highlight: palette anchors at top-leftmost selected node
+                    // and applies the picked color to all selected nodes.
+                    if (mindmap.selectNodes.length > 0) {
+                        mindmap.openHighlightPaletteMulti(mindmap.selectNodes);
+                        return true;
+                    }
+                    var node = mindmap.selectNode;
                     if (!node) {
                         new obsidian.Notice(`${t('Select a node first')}`);
                         return true;
                     }
-                    mindmapView.mindmap.openHighlightPalette(node);
+                    mindmap.openHighlightPalette(node);
                     return true;
                 }
             });
