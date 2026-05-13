@@ -1894,6 +1894,40 @@ export default class MindMap {
             return;
         }
 
+        // Manual double-click detector (desktop). Native `dblclick` doesn't
+        // fire reliably in Obsidian popout windows — likely because the 1st
+        // click's `node.select()` triggers `containEl.focus()` and the
+        // browser's auto-scroll-into-view shifts the node so the 2nd click
+        // lands on a different element. The native `dblclick` listener on
+        // `appEl` is kept as a fallback; this detector handles it first when
+        // it fires.
+        if (Platform.isDesktop && targetEl) {
+            var nodeEl = targetEl.closest('.mm-node') as HTMLElement | null;
+            if (nodeEl && !targetEl.closest('.mm-node-menu') && !targetEl.hasClass('mm-node-bar')) {
+                var clickedId = nodeEl.getAttribute('data-id');
+                var now = Date.now();
+                if (this._lastClickNodeId === clickedId && now - this._lastClickTime < 500) {
+                    var node = this.getNodeById(clickedId);
+                    if (node && (!this.editNode || this.editNode !== node)) {
+                        this.selectNode = node;
+                        node.edit();
+                        this.editNode = node;
+                        this._menuDom.style.display = 'none';
+                    }
+                    this._lastClickTime = 0;
+                    this._lastClickNodeId = '';
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    return;
+                }
+                this._lastClickTime = now;
+                this._lastClickNodeId = clickedId;
+            } else {
+                this._lastClickTime = 0;
+                this._lastClickNodeId = '';
+            }
+        }
+
         if (targetEl) {
 
             if (targetEl.tagName == 'A' && targetEl.hasClass("internal-link")) {
@@ -2318,9 +2352,15 @@ export default class MindMap {
     // to the finger even when auto-pan scrolls the canvas underneath.
     _dragStartScrollLeft: number = 0;
     _dragStartScrollTop: number = 0;
-    // Manual double-tap detector
+    // Manual double-tap detector (touch)
     _lastTapTime: number = 0;
     _lastTapNodeId: string = '';
+    // Manual double-click detector (desktop) — native `dblclick` is unreliable
+    // in Obsidian popout windows; manual detection in appClickFn makes the
+    // edit-on-double-click flow work consistently across main window, fresh
+    // popout, and dragged-out tab.
+    _lastClickTime: number = 0;
+    _lastClickNodeId: string = '';
 
     _getTouchDist(touches: TouchList): number {
         var dx = touches[0].pageX - touches[1].pageX;
